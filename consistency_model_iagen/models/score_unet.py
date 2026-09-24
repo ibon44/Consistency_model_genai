@@ -15,7 +15,7 @@ License:
     Proprietary. All rights reserved.
 """
 
-from typing import Callable, List
+from typing import Callable, List, Optional
 
 import numpy as np
 import torch
@@ -83,14 +83,22 @@ class ScoreNet(BaseScoreModel):
 
     def __init__(
         self,
-        marginal_prob_std: Callable[[torch.Tensor], torch.Tensor],
+        marginal_prob_std: Optional[
+            Callable[[torch.Tensor], torch.Tensor]
+        ] = None,
         channels: List[int] = [32, 64, 128, 256],
         embed_dim: int = 256
     ) -> None:
         """Initializes the ScoreNet.
 
         Args:
-            marginal_prob_std: Function mapping time to std tensor.
+            marginal_prob_std: Function mapping time to std tensor, used
+                to rescale the raw UNet output into a score estimate
+                (Song et al., 2021). Pass None to get the raw UNet
+                output unscaled, e.g. when this backbone is reused
+                under a consistency-model parameterization
+                (`models/consistency_wrapper.py`) that applies its own
+                c_skip/c_out output scaling instead.
             channels: List of channel sizes for each UNet block.
             embed_dim: Embedding dimension for time encoding.
         """
@@ -200,5 +208,6 @@ class ScoreNet(BaseScoreModel):
 
         h = self.tconv1(torch.cat([h, h1], dim=1))
 
-        h = h / self.marginal_prob_std(t)[:, None, None, None]
+        if self.marginal_prob_std is not None:
+            h = h / self.marginal_prob_std(t)[:, None, None, None]
         return h

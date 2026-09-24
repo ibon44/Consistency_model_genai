@@ -19,8 +19,12 @@ __all__ = [
     "Dense",
     "ScoreNet",
     "ScoreNetColor",
+    "VelocityNet",
+    "ConsistencyWrapper",
 ]
 
 from .base import BaseScoreModel
+from .consistency_wrapper import ConsistencyWrapper
 from .score_unet import Dense, GaussianRandomFourierFeatures, ScoreNet
 from .score_unet_color import ScoreNetColor
+from .velocity_unet import VelocityNet
