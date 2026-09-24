@@ -19,6 +19,7 @@ License:
 __all__ = [
     "DiscretizationSchedule",
     "EMADecaySchedule",
+    "karras_time_steps",
     "TeacherAdapter",
     "VETeacherAdapter",
     "RectifiedFlowTeacherAdapter",
@@ -28,7 +29,7 @@ __all__ = [
 
 from .ct_loss import consistency_training_loss
 from .distillation import consistency_distillation_loss
-from .schedules import DiscretizationSchedule, EMADecaySchedule
+from .schedules import DiscretizationSchedule, EMADecaySchedule, karras_time_steps
 from .teachers import (
     RectifiedFlowTeacherAdapter,
     TeacherAdapter,
