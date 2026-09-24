@@ -1,0 +1,6 @@
+[11:58:04] INFO: Training run 'mnist_digit4_ve' | digit=4 | images=5842 | device=cpu
+[11:58:04] INFO: [1/25] batch 0 - loss: 6142.7729
+[11:58:23] INFO: Epoch 1 - avg loss: 722.2051
+[11:58:23] INFO: [2/25] batch 0 - loss: 290.4305
+[11:58:42] INFO: Epoch 2 - avg loss: 215.5544
+[11:58:42] INFO: [3/25] batch 0 - loss: 163.9191
