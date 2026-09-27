@@ -12,10 +12,6 @@ Description:
     the second candidate teacher for consistency distillation (mirrors
     `training/ve_training.py` for the VE diffusion teacher).
 
-    TODO: fill in the training loop (mirrors `ve_training.py::train`,
-    swapping `VarianceExplodingDiffusion`+`ScoreNet` for
-    `RectifiedFlow`+`VelocityNet`).
-
 License:
     Proprietary. All rights reserved.
 """
@@ -28,6 +24,8 @@ from typing import Optional
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+import torch
+import torch.optim as optim
 from torch.utils.data import DataLoader
 
 from data import get_dataloader
@@ -42,7 +40,7 @@ DIGIT: Optional[int] = None
 BATCH_SIZE = 64
 N_EPOCHS = 25
 LEARNING_RATE = 1.0e-3
-SIGMA_DATA = 1.0        # Rectified Flow noise-endpoint standard deviation
+SIGMA_NOISE = 1.0  # Rectified Flow noise-endpoint standard deviation
 SEED = 42
 LOG_EVERY_N_BATCHES = 100
 DATA_DIR = "./data"
@@ -56,7 +54,7 @@ class TrainConfig:
     batch_size: int = BATCH_SIZE
     n_epochs: int = N_EPOCHS
     lr: float = LEARNING_RATE
-    sigma_data: float = SIGMA_DATA
+    sigma_noise: float = SIGMA_NOISE
     seed: int = SEED
     log_every: int = LOG_EVERY_N_BATCHES
     data_dir: str = DATA_DIR
@@ -81,7 +79,7 @@ def parse_args() -> TrainConfig:
     parser.add_argument("--batch-size", type=int, default=BATCH_SIZE)
     parser.add_argument("--epochs", type=int, default=N_EPOCHS)
     parser.add_argument("--lr", type=float, default=LEARNING_RATE)
-    parser.add_argument("--sigma-data", type=float, default=SIGMA_DATA)
+    parser.add_argument("--sigma-noise", type=float, default=SIGMA_NOISE)
     parser.add_argument("--seed", type=int, default=SEED)
     args = parser.parse_args()
     return TrainConfig(
@@ -89,7 +87,7 @@ def parse_args() -> TrainConfig:
         batch_size=args.batch_size,
         n_epochs=args.epochs,
         lr=args.lr,
-        sigma_data=args.sigma_data,
+        sigma_noise=args.sigma_noise,
         seed=args.seed,
     )
 
@@ -115,13 +113,38 @@ def train(config: TrainConfig) -> None:
         config.run_name, config.digit, len(loader.dataset), device,
     )
 
-    process = RectifiedFlow(sigma_data=config.sigma_data)
+    process = RectifiedFlow(sigma_noise=config.sigma_noise)
     model = VelocityNet().to(device)
+    optimizer = optim.Adam(model.parameters(), lr=config.lr)
 
-    raise NotImplementedError(
-        "TODO: optimizer + training loop, mirroring "
-        "training/ve_training.py::train with RectifiedFlow.loss_function"
-    )
+    for epoch in range(config.n_epochs):
+        model.train()
+        running_loss = 0.0
+
+        for i, (x, _) in enumerate(loader):
+            x = x.to(device)
+
+            optimizer.zero_grad()
+            loss = process.loss_function(model, x)
+            loss.backward()
+            optimizer.step()
+
+            running_loss += loss.item()
+
+            if i % config.log_every == 0:
+                logger.info(
+                    "[%d/%d] batch %d - loss: %.4f",
+                    epoch + 1, config.n_epochs, i, loss.item(),
+                )
+
+        logger.info(
+            "Epoch %d - avg loss: %.4f",
+            epoch + 1, running_loss / len(loader),
+        )
+
+    os.makedirs(config.checkpoint_dir, exist_ok=True)
+    torch.save(model.state_dict(), config.checkpoint_path)
+    logger.info("Model saved to %s", config.checkpoint_path)
 
 
 if __name__ == "__main__":

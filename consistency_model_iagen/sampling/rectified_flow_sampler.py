@@ -16,14 +16,13 @@ Description:
     point when discussing the speedup obtained by the consistency
     models distilled from it.
 
-    TODO: implement `sample`.
-
 License:
     Proprietary. All rights reserved.
 """
 
 from typing import Any, Tuple
 
+import torch
 from torch import Tensor
 
 from .base import Sampler
@@ -48,16 +47,44 @@ class RectifiedFlowSampler(Sampler):
         shape: Tuple[int, ...],
         velocity_model: Any,
         device: str = "cpu",
-    ) -> Tensor:
-        """Samples by integrating the Rectified Flow ODE.
+    ) -> Tuple[Tensor, Tensor]:
+        """Samples by integrating the Rectified Flow ODE from t=T to t=0.
+
+        Starting from noise x_T ~ `process.sample_prior`, takes
+        `n_steps` uniform Euler steps backwards in time:
+
+            x <- x + (t_{i+1} - t_i) * v_theta(x, t_i),
+
+        where t_{i+1} - t_i < 0. Since v_theta regresses x_1 - x_0
+        (pointing from data towards noise), stepping with a negative
+        dt moves the sample towards the data distribution.
 
         Args:
-            shape: The shape of the tensor to sample.
+            shape: The shape of the tensor to sample, formatted as
+                (n_images, channels, *spatial_dims).
             velocity_model: Velocity model callable, invoked as
-                velocity_model(x, t).
+                velocity_model(x, t) with t of shape (n_images,).
             device: Device on which to run the integration.
 
         Returns:
-            Generated sample tensor.
+            Tuple of (initial prior noise, final sample in [0, 1]),
+            mirroring `ProbabilityFlow.sample`.
         """
-        raise NotImplementedError
+        x = self.process.sample_prior(shape, device=device)
+        prior = x.clone()
+
+        # Uniform time grid from T down to 0; dt is negative.
+        t = torch.linspace(
+            self.process.T, 0.0, self.n_steps + 1, device=device
+        )
+        dt = t[1:] - t[:-1]
+
+        with torch.no_grad():
+            for i in range(self.n_steps):
+                t_i = t[i].expand(shape[0])
+                x = x + dt[i] * velocity_model(x, t_i)
+
+        # Revert the [-1, 1] normalization to [0, 1] for visualization.
+        x_0 = ((x + 1) / 2).clamp(0.0, 1.0)
+
+        return prior, x_0
