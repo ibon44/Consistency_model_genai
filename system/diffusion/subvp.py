@@ -111,6 +111,11 @@ class SubVariancePreservingDiffusion(DiffusionProcess):
     def sigma_t(self, t: torch.Tensor) -> torch.Tensor:
         """Computes the standard deviation at time t.
 
+        For the sub-VP SDE the perturbation kernel variance solves to
+        (1 - exp(-beta_int))**2 (Song et al., 2021, Appendix), i.e. the
+        std is linear in (1 - exp(-beta_int)), not its square root as
+        in the plain VP SDE.
+
         Args:
             t: The time tensor.
 
@@ -118,7 +123,7 @@ class SubVariancePreservingDiffusion(DiffusionProcess):
             The standard deviation tensor at time t.
         """
         beta_int = self.beta_schedule.integrated_beta(t)
-        return torch.sqrt(1.0 - torch.exp(-beta_int))
+        return 1.0 - torch.exp(-beta_int)
 
     def loss_function(
         self,

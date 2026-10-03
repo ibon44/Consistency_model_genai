@@ -43,7 +43,7 @@ from utils import get_device, get_logger, set_seed
 DIGIT: Optional[int] = None
 
 BATCH_SIZE = 64
-N_EPOCHS = 25
+N_EPOCHS = 40
 LEARNING_RATE = 1.0e-3
 SIGMA = 25.0            # VE diffusion process base standard deviation
 SEED = 42

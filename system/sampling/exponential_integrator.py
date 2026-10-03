@@ -81,7 +81,13 @@ class ExponentialIntegrator(Sampler):
         prior = x.clone()
 
         time_steps = torch.linspace(1.0, 1e-3, self.num_steps, device=device)
-        dt = 1.0 / self.num_steps
+        # time_steps is decreasing, so dt is negative and already points
+        # backward in time (same convention as EulerMaruyama and
+        # PredictorCorrector).
+        dt = (
+            time_steps[1] - time_steps[0] if self.num_steps > 1
+            else -time_steps[0]
+        )
 
         for t in time_steps:
             t_vec = torch.ones(x.shape[0], device=device) * t
@@ -102,7 +108,7 @@ class ExponentialIntegrator(Sampler):
             # Stochastic part (additive noise)
             noise = torch.randn_like(x)
             diffusion_coeff = torch.sqrt(beta_t) * self.noise_scale
-            x_stochastic = diffusion_coeff * torch.sqrt(torch.tensor(dt, device=device)) * noise
+            x_stochastic = diffusion_coeff * torch.sqrt(torch.abs(dt)) * noise
 
             # Combine
             x = x_deterministic + x_stochastic

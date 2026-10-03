@@ -18,16 +18,17 @@ Description:
     Works identically for a VE-diffusion or a Rectified-Flow teacher,
     since it only relies on the TeacherAdapter interface.
 
-    TODO: implement `consistency_distillation_loss`.
-
 License:
     Proprietary. All rights reserved.
 """
 
+from typing import Callable
+
 import torch
 import torch.nn as nn
 
-from .schedules import DiscretizationSchedule
+from .distances import squared_l2_distance
+from .schedules import DiscretizationSchedule, karras_time_steps
 from .teachers import TeacherAdapter
 
 
@@ -38,7 +39,9 @@ def consistency_distillation_loss(
     x_0: torch.Tensor,
     discretization_schedule: DiscretizationSchedule,
     iteration: int,
-    distance_fn: nn.Module,
+    distance_fn: Callable[
+        [torch.Tensor, torch.Tensor], torch.Tensor
+    ] = squared_l2_distance,
 ) -> torch.Tensor:
     """Computes the consistency distillation loss for one mini-batch.
 
@@ -52,9 +55,42 @@ def consistency_distillation_loss(
         iteration: Current training iteration k, passed to the
             discretization schedule.
         distance_fn: Distance/metric between two consistency-model
-            outputs (e.g. squared L2, LPIPS).
+            outputs. Defaults to `squared_l2_distance`
+            (`consistency/distances.py`); pass `pseudo_huber_distance`
+            for the more stable alternative from the "Improved
+            Techniques" follow-up paper, or your own callable.
 
     Returns:
         Scalar consistency distillation loss.
     """
-    raise NotImplementedError
+    # Number of discretization points N(k) for this iteration, and the
+    # non-uniform Karras time grid t_1=eps < ... < t_N=T they live on
+    # (denser near eps, see consistency/schedules.py::karras_time_steps).
+    N_k = discretization_schedule(iteration)
+    t_grid = karras_time_steps(N_k, teacher.eps, teacher.T).to(x_0.device)
+
+    # Sample, per example in the batch, an adjacent pair of grid points
+    # (t_n, t_{n+1}) -- n uniform in {0, ..., N_k-2} (0-indexed).
+    n_idx = torch.randint(0, N_k - 1, (x_0.size(0),), device=x_0.device)
+    t_n = t_grid[n_idx]
+    t_n_plus_1 = t_grid[n_idx + 1]
+
+    # Sample x_{t_{n+1}} from the teacher's own forward process.
+    x_t_n_plus_1 = teacher.forward_sample(x_0, t_n_plus_1)
+
+    # Take one ODE step from t_{n+1} to t_n using the teacher (no
+    # gradient: the teacher is frozen, only f_theta is trained).
+    with torch.no_grad():
+        x_t_n = teacher.ode_step(x_t_n_plus_1, t_n_plus_1, t_n)
+
+    # Get the consistency model's prediction at t_{n+1}
+    pred_t_n_plus_1 = consistency_model(x_t_n_plus_1, t_n_plus_1)
+
+    # Get the EMA target model's prediction at t_n
+    with torch.no_grad():
+        pred_t_n = consistency_model_ema(x_t_n, t_n)
+
+    # Compute the distance between the two predictions
+    loss = distance_fn(pred_t_n_plus_1, pred_t_n)
+
+    return loss

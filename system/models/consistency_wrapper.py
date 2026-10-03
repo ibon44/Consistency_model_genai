@@ -63,10 +63,14 @@ class ConsistencyWrapper(nn.Module):
         self.sigma_t = sigma_t
 
     def c_skip(self, t: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError
+        sigma = self.sigma_t(t)
+        sigma_eps = self.sigma_t(torch.full_like(t, self.eps))
+        return self.sigma_data**2 / ((sigma - sigma_eps)**2 + self.sigma_data**2)
 
     def c_out(self, t: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError
+        sigma = self.sigma_t(t)
+        sigma_eps = self.sigma_t(torch.full_like(t, self.eps))
+        return self.sigma_data*(sigma - sigma_eps) / torch.sqrt(sigma**2 + self.sigma_data**2)
 
     def forward(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         """Evaluates f_theta(x, t) = c_skip(t)*x + c_out(t)*backbone(x, t).
@@ -78,4 +82,7 @@ class ConsistencyWrapper(nn.Module):
         Returns:
             Consistency-model output tensor, same shape as x.
         """
-        raise NotImplementedError
+        shape = (-1, *([1] * (x.dim() - 1)))
+        c_skip = self.c_skip(t).view(*shape)
+        c_out = self.c_out(t).view(*shape)
+        return c_skip * x + c_out * self.backbone(x, t)

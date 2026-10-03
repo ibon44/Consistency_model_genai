@@ -26,6 +26,8 @@ License:
     Proprietary. All rights reserved.
 """
 
+import math
+
 import torch
 
 
@@ -56,7 +58,7 @@ class DiscretizationSchedule:
             Number of discretization steps N(k), an integer >= s0.
         """
         sqrt_term = (k / self.K) * ((self.s1 + 1) ** 2 - self.s0 ** 2) + self.s0 ** 2
-        N_k = int(torch.ceil(torch.sqrt(sqrt_term) - 1)) + 1
+        N_k = math.ceil(math.sqrt(sqrt_term) - 1) + 1
         return N_k
 
 

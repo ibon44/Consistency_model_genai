@@ -32,10 +32,10 @@ from utils import get_device, plot_image_evolution
 
 # ============================== CONFIG ==============================
 CHECKPOINT_PATH = "./checkpoints/mnist_all_ve.pth"
-N_IMAGES = 10
+N_IMAGES = 3
 T = 1.0
 T_END = 1.0e-3
-N_STEPS = 2500
+N_STEPS = 4000
 INTERMEDIATE_STEPS = [0, N_STEPS]
 SEED = 42
 # ======================================================================
