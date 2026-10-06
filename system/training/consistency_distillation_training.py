@@ -73,6 +73,7 @@ BATCH_SIZE = 64
 N_ITERATIONS = 100000
 LEARNING_RATE = 4.0e-4
 SIGMA = 25.0             # must match the VE teacher's own training sigma
+SIGMA_NOISE = 1.0        # must match the RF teacher's own training sigma_noise
 SIGMA_DATA = 0.5         # std of MNIST in [-1, 1], used by ConsistencyWrapper
 EPS = 1.0e-5             # boundary time, shared by teacher adapter + wrapper
 SEED = 42
@@ -80,6 +81,10 @@ LOG_EVERY_N_BATCHES = 100
 CHECKPOINT_EVERY = 1000
 DATA_DIR = "./data"
 CHECKPOINT_DIR = "./checkpoints"
+# Teacher weights to distill from. None -> checkpoints/<teacher_run_name>.pth
+# for VE, and the EMA weights checkpoints/<teacher_run_name>_ema.pth for RF
+# (rectified_flow_training.py saves both; the EMA copy is the better teacher).
+TEACHER_CHECKPOINT: Optional[str] = None
 # Distance d(x,y) for the distillation loss ("huber" is the stabler,
 # outlier-robust choice from Song & Dhariwal, 2024; "l2" is the
 # original Consistency Models paper's choice, kept for comparison).
@@ -96,6 +101,7 @@ class TrainConfig:
     n_iterations: int = N_ITERATIONS
     lr: float = LEARNING_RATE
     sigma: float = SIGMA
+    sigma_noise: float = SIGMA_NOISE
     sigma_data: float = SIGMA_DATA
     eps: float = EPS
     seed: int = SEED
@@ -105,6 +111,7 @@ class TrainConfig:
     data_dir: str = DATA_DIR
     checkpoint_dir: str = CHECKPOINT_DIR
     distance: Literal["huber", "l2"] = DISTANCE
+    teacher_checkpoint: Optional[str] = TEACHER_CHECKPOINT
 
     @property
     def teacher_run_name(self) -> str:
@@ -113,7 +120,12 @@ class TrainConfig:
 
     @property
     def teacher_checkpoint_path(self) -> str:
-        return os.path.join(self.checkpoint_dir, f"{self.teacher_run_name}.pth")
+        if self.teacher_checkpoint is not None:
+            return self.teacher_checkpoint
+        suffix = "_ema" if self.teacher == "rf" else ""
+        return os.path.join(
+            self.checkpoint_dir, f"{self.teacher_run_name}{suffix}.pth"
+        )
 
     @property
     def run_name(self) -> str:
@@ -141,7 +153,12 @@ def parse_args() -> TrainConfig:
     parser.add_argument("--iterations", type=int, default=N_ITERATIONS)
     parser.add_argument("--lr", type=float, default=LEARNING_RATE)
     parser.add_argument("--sigma", type=float, default=SIGMA)
+    parser.add_argument("--sigma-noise", type=float, default=SIGMA_NOISE)
     parser.add_argument("--sigma-data", type=float, default=SIGMA_DATA)
+    parser.add_argument(
+        "--teacher-checkpoint", default=TEACHER_CHECKPOINT,
+        help="Path to the teacher weights (default: see TEACHER_CHECKPOINT)."
+    )
     parser.add_argument("--seed", type=int, default=SEED)
     parser.add_argument("--checkpoint-every", type=int, default=CHECKPOINT_EVERY)
     parser.add_argument(
@@ -160,11 +177,13 @@ def parse_args() -> TrainConfig:
         n_iterations=args.iterations,
         lr=args.lr,
         sigma=args.sigma,
+        sigma_noise=args.sigma_noise,
         sigma_data=args.sigma_data,
         seed=args.seed,
         checkpoint_every=args.checkpoint_every,
         resume=args.resume,
         distance=args.distance,
+        teacher_checkpoint=args.teacher_checkpoint,
     )
 
 
@@ -194,7 +213,7 @@ def build_teacher(config: TrainConfig, device: torch.device):
         )
         adapter_cls = VETeacherAdapter
     else:
-        process = RectifiedFlow(sigma_data=config.sigma_data, eps=config.eps)
+        process = RectifiedFlow(sigma_noise=config.sigma_noise, eps=config.eps)
         backbone = VelocityNet().to(device)
         backbone.load_state_dict(
             torch.load(config.teacher_checkpoint_path, map_location=device)
