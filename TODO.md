@@ -14,10 +14,10 @@ Referencia de fechas: plan de trabajo del proyecto (21 sep – 31 oct).
 
 ## Fase 1 — Piezas independientes (sin dependencias entre sí, se pueden repartir en paralelo)
 
-- [ ] **1. `flow_matching/rectified_flow.py`** — implementar `interpolate`,
+- [x] **1. `flow_matching/rectified_flow.py`** — implementar `interpolate`,
       `target_velocity`, `sigma_t`, `loss_function`.
       *Depende de:* nada (solo del andamiaje ya creado).
-- [ ] **2. `models/velocity_unet.py`** — implementar `VelocityNet`
+- [x] **2. `models/velocity_unet.py`** — implementar `VelocityNet`
       (reutilizar el backbone de `ScoreNet` con `marginal_prob_std=None`).
       *Depende de:* nada.
 - [ ] **3. `evaluation/classifier.py`** — implementar `MNISTClassifier`
@@ -36,10 +36,10 @@ Referencia de fechas: plan de trabajo del proyecto (21 sep – 31 oct).
 - [ ] **6. Entrenar maestro de difusión (VE)** — ejecutar
       `training/ve_training.py` sobre todo MNIST → `checkpoints/mnist_all_ve.pth`.
       *Depende de:* nada (script ya existe y funciona).
-- [ ] **7. `training/rectified_flow_training.py`** — completar el bucle de
+- [x] **7. `training/rectified_flow_training.py`** — completar el bucle de
       entrenamiento.
       *Depende de:* 1, 2.
-- [ ] **8. Entrenar maestro Rectified Flow** — ejecutar el script anterior
+- [x] **8. Entrenar maestro Rectified Flow** — ejecutar el script anterior
       → `checkpoints/mnist_all_rf.pth`.
       *Depende de:* 7.
 - [ ] **9. `training/classifier_training.py`** — completar el bucle y
@@ -71,7 +71,7 @@ Referencia de fechas: plan de trabajo del proyecto (21 sep – 31 oct).
 - [ ] **16. `sampling/consistency_sampler.py`** — implementar `sample`
       (1-step y multistep, Algoritmo 1).
       *Depende de:* 5.
-- [ ] **17. `sampling/rectified_flow_sampler.py`** — implementar `sample`
+- [x] **17. `sampling/rectified_flow_sampler.py`** — implementar `sample`
       (integración Euler del ODE).
       *Depende de:* 1.
 - [ ] **18. `evaluation/metrics.py`** — implementar `classification_accuracy`,
