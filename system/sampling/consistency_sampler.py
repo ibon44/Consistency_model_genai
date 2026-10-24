@@ -19,14 +19,16 @@ Description:
       tradeoff this project measures (see `evaluation/compare.py`).
 
     Works for a consistency model distilled from either teacher (VE or
-    Rectified Flow), since it only calls f_theta(x, t) and the process'
-    `T`/`sigma_t`/`sample_prior`. The re-noising step assumes a
-    zero-drift forward process (mu_t(x_0,t) = x_0, as in VE) so that
-    adding noise directly to the current f_theta prediction is a valid
-    way to land back on the trajectory at an earlier time -- this holds
-    for the VE teacher this project trains against; a model distilled
-    from Rectified Flow (whose forward path also rescales x_0, not just
-    adds noise) would need `process.interpolate` here instead.
+    Rectified Flow). The re-noising step has to reproduce the teacher's
+    own forward process, so that x_tau looks like the inputs f_theta
+    saw during distillation, and it therefore branches on the process:
+
+    - VE (zero-drift forward, mu_t(x_0,t) = x_0): noise is added
+      directly to the current prediction,
+      x_tau = x + sqrt(sigma(tau)^2 - sigma(eps)^2) * z.
+    - Rectified Flow (`process.kind == "RF"`): the forward path also
+      rescales x_0, so the prediction is re-noised with
+      `process.interpolate`, x_tau = (1 - tau) * x + tau * x_1.
 
     Returned samples are in the same [-1, 1] range as the training data
     (see `data/datasets.py`), not rescaled to [0, 1].
@@ -51,8 +53,9 @@ class ConsistencySampler(Sampler):
 
         Args:
             process: The teacher process the consistency model was
-                distilled from (only used for `T`/`sigma_t`/
-                `sample_prior`).
+                distilled from (used for `T`/`sigma_t`/`sample_prior`,
+                plus `interpolate` when it is a Rectified Flow, i.e.
+                `process.kind == "RF"`).
             eps: Boundary time where f_theta(x,eps)=x holds; must match
                 the `eps` used to build the `ConsistencyWrapper` and
                 the `TeacherAdapter` it was distilled with.
@@ -78,7 +81,9 @@ class ConsistencySampler(Sampler):
             intermediate_times: Optional strictly decreasing sequence
                 of extra time points in (eps, T) for multistep sampling
                 (tau_1 > tau_2 > ... , all < T). None (default)
-                performs 1-step generation.
+                performs 1-step generation. Each one costs a re-noising
+                (VE or RF forward, see the module docstring) plus one
+                extra f_theta evaluation.
             x_T: Optional pre-sampled initial noise (shape `shape`), so
                 e.g. 1-step vs. 4-step outputs can be compared from the
                 exact same starting point. Defaults to a fresh draw
@@ -102,16 +107,22 @@ class ConsistencySampler(Sampler):
                 torch.full((batch_size,), self.eps, device=device)
             )
             for tau in intermediate_times:
-                z = torch.randn(*shape, device=device)
-                sigma_tau = self.process.sigma_t(
-                    torch.full((batch_size,), tau, device=device)
-                )
-                noise_scale = torch.sqrt(
-                    torch.clamp(sigma_tau ** 2 - sigma_eps ** 2, min=0.0)
-                )
-                x_tau = x + noise_scale.view(*value_shape) * z
-
                 t_tau = torch.full((batch_size,), tau, device=device)
+
+                if getattr(self.process, "kind", None) == "RF":
+                    # Forward RF: x_tau = (1 - tau) * x + tau * x_1
+                    x_1 = self.process.sample_prior(shape, device=device)
+                    x_tau = self.process.interpolate(x, x_1, t_tau)
+                else:
+                    z = torch.randn(*shape, device=device)
+                    sigma_tau = self.process.sigma_t(
+                        torch.full((batch_size,), tau, device=device)
+                    )
+                    noise_scale = torch.sqrt(
+                        torch.clamp(sigma_tau**2 - sigma_eps**2, min=0.0)
+                    )
+                    x_tau = x + noise_scale.view(*value_shape) * z
+
                 with torch.no_grad():
                     x = consistency_model(x_tau, t_tau)
 
