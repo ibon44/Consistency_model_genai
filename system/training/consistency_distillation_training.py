@@ -119,6 +119,9 @@ class TrainConfig:
     checkpoint_dir: Optional[str] = None  # None -> CHECKPOINT_DIRS[teacher]
     distance: Literal["huber", "l2"] = DISTANCE
     teacher_checkpoint: Optional[str] = TEACHER_CHECKPOINT
+    # Appended to run_name (e.g. "_noema"), so variants of the same
+    # teacher/digit don't overwrite each other's checkpoints.
+    run_suffix: str = ""
 
     def __post_init__(self) -> None:
         if self.checkpoint_dir is None:
@@ -141,7 +144,7 @@ class TrainConfig:
     @property
     def run_name(self) -> str:
         base = f"mnist_digit{self.digit}" if self.digit is not None else "mnist_all"
-        return f"{base}_cm_{self.teacher}"
+        return f"{base}_cm_{self.teacher}{self.run_suffix}"
 
     @property
     def checkpoint_path(self) -> str:
@@ -180,6 +183,10 @@ def parse_args() -> TrainConfig:
         "--distance", choices=["huber", "l2"], default=DISTANCE,
         help="Distance d(x,y) for the distillation loss (see consistency/distances.py)."
     )
+    parser.add_argument(
+        "--run-suffix", default="",
+        help="Appended to the output name, e.g. '_noema' -> mnist_all_cm_rf_noema.pth."
+    )
     args = parser.parse_args()
     return TrainConfig(
         teacher=args.teacher,
@@ -195,6 +202,7 @@ def parse_args() -> TrainConfig:
         resume=args.resume,
         distance=args.distance,
         teacher_checkpoint=args.teacher_checkpoint,
+        run_suffix=args.run_suffix,
     )
 
 
