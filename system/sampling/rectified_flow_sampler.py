@@ -20,7 +20,7 @@ License:
     Proprietary. All rights reserved.
 """
 
-from typing import Any, Tuple
+from typing import Any, Optional, Tuple
 
 import torch
 from torch import Tensor
@@ -47,6 +47,7 @@ class RectifiedFlowSampler(Sampler):
         shape: Tuple[int, ...],
         velocity_model: Any,
         device: str = "cpu",
+        x_T: Optional[Tensor] = None,
     ) -> Tuple[Tensor, Tensor]:
         """Samples by integrating the Rectified Flow ODE from t=T to t=0.
 
@@ -65,13 +66,19 @@ class RectifiedFlowSampler(Sampler):
             velocity_model: Velocity model callable, invoked as
                 velocity_model(x, t) with t of shape (n_images,).
             device: Device on which to run the integration.
+            x_T: Optional pre-sampled initial noise (shape `shape`), so
+                the teacher can be compared against a consistency
+                model from the exact same starting point. Defaults to
+                a fresh draw from `self.process.sample_prior`.
 
         Returns:
             Tuple of (initial prior noise, final sample in [0, 1]),
             mirroring `ProbabilityFlow.sample`.
         """
-        x = self.process.sample_prior(shape, device=device)
-        prior = x.clone()
+        if x_T is None:
+            x_T = self.process.sample_prior(shape, device=device)
+        x = x_T.clone()
+        prior = x_T.clone()
 
         # Uniform time grid from T down to 0; dt is negative.
         t = torch.linspace(

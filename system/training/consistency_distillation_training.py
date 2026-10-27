@@ -12,7 +12,9 @@ Description:
     with --teacher) into a consistency model, following Song et al.,
     2023, Algorithm 2 (see `consistency/distillation.py`). Produces
     either checkpoints/mnist_all_cm_ve.pth or
-    checkpoints/mnist_all_cm_rf.pth depending on --teacher.
+    checkpoints_rf/mnist_all_cm_rf.pth depending on --teacher (each
+    teacher has its own folder, see CHECKPOINT_DIRS, used both to read
+    the teacher weights and to save the consistency model).
 
     Unlike `ve_training.py`, this trains for a fixed number of
     iterations rather than epochs (N(k)/mu(k) in `consistency/
@@ -40,13 +42,13 @@ Description:
     A run of this length (thousands of iterations, potentially hours on
     CPU) can get interrupted, so progress is checkpointed periodically,
     not only at the very end:
-      - checkpoints/<run_name>.pth is overwritten every
+      - <checkpoint_dir>/<run_name>.pth is overwritten every
         CHECKPOINT_EVERY iterations with the current sampling EMA, so
         there's always a usable (if not fully converged) model to
         sample from without waiting for the full run to finish.
-      - checkpoints/<run_name>_resume.pth additionally stores the
-        online/target models, optimizer state and iteration count, so
-        the run itself can be continued via --resume.
+      - <checkpoint_dir>/<run_name>_resume.pth additionally stores the
+        online/target models, optimizer state, iteration count and RNG
+        state, so the run itself can be continued via --resume.
 
 License:
     Proprietary. All rights reserved.
@@ -56,12 +58,14 @@ import argparse
 import copy
 import itertools
 import os
+import random
 import sys
 from dataclasses import dataclass
-from typing import Literal, Optional
+from typing import Iterator, Literal, Optional
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+import numpy as np
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
@@ -98,11 +102,14 @@ SEED = 42
 LOG_EVERY_N_BATCHES = 100
 CHECKPOINT_EVERY = 1000
 DATA_DIR = "./data"
-CHECKPOINT_DIR = "./checkpoints"
-# Teacher weights to distill from. None -> checkpoints/<teacher_run_name>.pth
-# for VE, and the EMA weights checkpoints/<teacher_run_name>_ema.pth for RF
-# (rectified_flow_training.py saves both; the EMA copy is the better teacher).
-# --teacher-tag ema picks checkpoints/<teacher_run_name>_ema.pth for either.
+# One checkpoint folder per teacher: it holds both the teacher weights
+# that are read and the consistency model (+ resume state) that is saved.
+CHECKPOINT_DIRS = {"ve": "./checkpoints", "rf": "./checkpoints_rf"}
+# Teacher weights to distill from. None -> <dir>/<teacher_run_name>.pth
+# for VE, and the EMA weights <dir>/<teacher_run_name>_ema.pth for RF
+# (rectified_flow_training.py saves both; the EMA copy is the better
+# teacher), with <dir> = CHECKPOINT_DIRS[teacher].
+# --teacher-tag ema picks <dir>/<teacher_run_name>_ema.pth for either.
 TEACHER_CHECKPOINT: Optional[str] = None
 # Distance d(x,y) for the distillation loss ("huber" is the stabler,
 # outlier-robust choice from Song & Dhariwal, 2024; "l2" is the
@@ -134,7 +141,7 @@ class TrainConfig:
     checkpoint_every: int = CHECKPOINT_EVERY
     resume: bool = False
     data_dir: str = DATA_DIR
-    checkpoint_dir: str = CHECKPOINT_DIR
+    checkpoint_dir: Optional[str] = None  # None -> CHECKPOINT_DIRS[teacher]
     distance: Literal["huber", "l2"] = DISTANCE
     schedule: Literal["fixed", "curriculum"] = SCHEDULE
     n_scales: int = N_SCALES
@@ -143,6 +150,10 @@ class TrainConfig:
     tag: Optional[str] = None
     teacher_tag: Optional[str] = None
     teacher_checkpoint: Optional[str] = TEACHER_CHECKPOINT
+
+    def __post_init__(self) -> None:
+        if self.checkpoint_dir is None:
+            self.checkpoint_dir = CHECKPOINT_DIRS[self.teacher]
 
     @property
     def teacher_run_name(self) -> str:
@@ -196,7 +207,7 @@ def parse_args() -> TrainConfig:
     parser.add_argument("--checkpoint-every", type=int, default=CHECKPOINT_EVERY)
     parser.add_argument(
         "--resume", action="store_true",
-        help="Resume from checkpoints/<run_name>_resume.pth if it exists."
+        help="Resume from <checkpoint_dir>/<run_name>_resume.pth if it exists."
     )
     parser.add_argument(
         "--distance", choices=["huber", "l2"], default=DISTANCE,
@@ -212,8 +223,8 @@ def parse_args() -> TrainConfig:
     )
     parser.add_argument(
         "--tag", default=None,
-        help="Optional suffix for the run name, e.g. --tag test saves "
-             "checkpoints/mnist_all_cm_ve_test.pth."
+        help="Optional suffix for the run name, e.g. --tag noema saves "
+             "<checkpoint_dir>/mnist_all_cm_rf_noema.pth."
     )
     parser.add_argument(
         "--teacher-tag", default=None,
@@ -324,6 +335,47 @@ def update_ema(cm_ema: torch.nn.Module, cm: torch.nn.Module, mu: float) -> None:
             p_ema.mul_(mu).add_(p, alpha=1.0 - mu)
 
 
+def infinite_batches(
+    loader: DataLoader, seed: int, start_iteration: int = 0
+) -> Iterator:
+    """Endless, reproducible stream of batches, resumable mid-epoch.
+
+    Each epoch is shuffled with its own generator seeded with
+    `seed + epoch`, so the batch seen at iteration k depends only on
+    (seed, k) -- not on how many times the run has been stopped and
+    resumed. On resume, the batches of the current epoch that were
+    already consumed before `start_iteration` are skipped.
+    """
+    batches_per_epoch = len(loader)
+    epoch, skip = divmod(start_iteration, batches_per_epoch)
+    while True:
+        loader.sampler.generator = torch.Generator().manual_seed(seed + epoch)
+        yield from itertools.islice(iter(loader), skip, None)
+        epoch += 1
+        skip = 0
+
+
+def get_rng_state() -> dict:
+    """Snapshot of every global RNG, stored in the resume checkpoint."""
+    state = {
+        "python": random.getstate(),
+        "numpy": np.random.get_state(),
+        "torch": torch.get_rng_state(),
+    }
+    if torch.cuda.is_available():
+        state["cuda"] = torch.cuda.get_rng_state_all()
+    return state
+
+
+def set_rng_state(state: dict) -> None:
+    """Restores the global RNGs saved by `get_rng_state`."""
+    random.setstate(state["python"])
+    np.random.set_state(state["numpy"])
+    torch.set_rng_state(state["torch"])
+    if "cuda" in state and torch.cuda.is_available():
+        torch.cuda.set_rng_state_all(state["cuda"])
+
+
 def train(config: TrainConfig) -> None:
     logger = get_logger(name=config.run_name)
     set_seed(config.seed)
@@ -358,24 +410,39 @@ def train(config: TrainConfig) -> None:
 
     start_iteration = 0
     if config.resume and os.path.exists(config.resume_checkpoint_path):
-        checkpoint = torch.load(config.resume_checkpoint_path, map_location=device)
+        # weights_only=False: the RNG state holds numpy/python objects,
+        # not just tensors (it's our own file, so it's safe to unpickle).
+        checkpoint = torch.load(
+            config.resume_checkpoint_path, map_location=device, weights_only=False
+        )
         cm.load_state_dict(checkpoint["cm"])
         cm_target.load_state_dict(checkpoint["cm_target"])
         cm_sample.load_state_dict(checkpoint["cm_sample"])
         optimizer.load_state_dict(checkpoint["optimizer"])
         start_iteration = checkpoint["iteration"] + 1
+        # Older resume checkpoints don't have it; resuming from them
+        # still works, just not bit-for-bit reproducibly.
+        if "rng_state" in checkpoint:
+            set_rng_state(checkpoint["rng_state"])
         logger.info(
             "Resumed from %s at iteration %d",
             config.resume_checkpoint_path, start_iteration,
         )
+    elif config.resume:
+        logger.warning(
+            "--resume given but %s not found, starting from scratch",
+            config.resume_checkpoint_path,
+        )
 
     # Infinite iterator over the dataloader: unlike ve_training.py this
     # loops over a fixed iteration count, not epochs, so an epoch
-    # boundary just means silently reshuffling and continuing.
-    data_iter = itertools.cycle(loader)
+    # boundary just means reshuffling and continuing. It's seeded per
+    # epoch so that resuming picks up the exact same batch order.
+    data_iter = infinite_batches(loader, config.seed, start_iteration)
 
     cm.train()
     running_loss = 0.0
+    window_size = 0
     for iteration in range(start_iteration, config.n_iterations):
         x, _ = next(data_iter)
         x = x.to(device)
@@ -398,15 +465,17 @@ def train(config: TrainConfig) -> None:
         )
 
         running_loss += loss.item()
+        window_size += 1
 
         if (iteration + 1) % config.log_every == 0:
             logger.info(
                 "[%d/%d] N=%d mu=%.5f - avg loss (last %d): %.4f",
                 iteration + 1, config.n_iterations,
                 discretization_schedule(iteration), mu,
-                config.log_every, running_loss / config.log_every,
+                window_size, running_loss / window_size,
             )
             running_loss = 0.0
+            window_size = 0
 
         if iteration > 0 and iteration % config.checkpoint_every == 0:
             # Usable snapshot -- always the latest one for sampling,
@@ -420,10 +489,17 @@ def train(config: TrainConfig) -> None:
                     "cm_sample": cm_sample.state_dict(),
                     "optimizer": optimizer.state_dict(),
                     "iteration": iteration,
+                    "rng_state": get_rng_state(),
                 },
                 config.resume_checkpoint_path,
             )
             logger.info("Checkpoint saved at iteration %d", iteration)
+
+    if window_size > 0:
+        logger.info(
+            "Final avg loss (last %d iters window): %.4f",
+            window_size, running_loss / window_size,
+        )
 
     torch.save(cm_sample.state_dict(), config.checkpoint_path)
     logger.info("Consistency model (sampling EMA) saved to %s", config.checkpoint_path)

@@ -20,7 +20,7 @@ License:
 
 from __future__ import annotations
 
-from typing import Callable
+from typing import Callable, Optional
 
 import torch
 
@@ -102,16 +102,32 @@ class RectifiedFlow(FlowProcess):
         """
         return t * self.sigma_noise
 
+    def sigma_inverse(self, sigma_t: torch.Tensor) -> torch.Tensor:
+        """Inverts `sigma_t`: returns the time t with sigma_t(t) = sigma_t.
+
+        Used to build Karras time grids spaced in sigma (see
+        `consistency/schedules.py::karras_sigma_time_steps` and
+        `ConsistencySampler.karras_intermediate_times`).
+
+        Args:
+            sigma_t: Standard deviation tensor.
+
+        Returns:
+            Time tensor, same shape as sigma_t.
+        """
+        return sigma_t / self.sigma_noise
+
     def loss_function(
         self,
         velocity_model: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
         x_0: torch.Tensor,
         eps: float = 1.0e-5,
+        x_1: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Computes the Rectified Flow velocity-regression loss.
 
-        Draws t ~ U(eps, 1) and x_1 ~ N(0, sigma_noise^2 I) per sample,
-        builds x_t = interpolate(x_0, x_1, t) and returns
+        Draws t ~ U(eps, 1) and x_1 ~ N(0, sigma_noise^2 I) per sample
+        (unless x_1 is given, see below), builds x_t = interpolate(x_0, x_1, t) and returns
 
             E[ || v_theta(x_t, t) - (x_1 - x_0) ||^2 ],
 
@@ -125,12 +141,18 @@ class RectifiedFlow(FlowProcess):
                 velocity_model(x_t, t).
             x_0: Mini-batch of training data, shape (B, C, H, W).
             eps: Lower bound for t, for numerical stability near t=0.
+            x_1: Optional noise paired with each x_0. None (default)
+                draws it independently of x_0 (1-Rectified Flow).
+                Reflow (Liu et al., 2022, Sec. 2.3) passes instead the
+                noise the previous flow mapped to x_0, so the new flow
+                learns that coupling and its paths get straighter.
 
         Returns:
             Scalar loss tensor.
         """
         t = torch.rand(x_0.shape[0], device=x_0.device) * (1 - eps) + eps
-        x_1 = self.sample_prior(x_0.shape, device=x_0.device)
+        if x_1 is None:
+            x_1 = self.sample_prior(x_0.shape, device=x_0.device)
         x_t = self.interpolate(x_0, x_1, t)
 
         v_pred = velocity_model(x_t, t)
