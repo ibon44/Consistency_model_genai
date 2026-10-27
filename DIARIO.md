@@ -4,6 +4,58 @@ Registro breve de lo que se ha hecho, entrada más reciente arriba.
 
 ---
 
+## 2026-09-27 — Maestro Rectified Flow implementado y entrenado
+
+- Implementadas las tareas 1, 2, 7, 8 y 17 de `TODO.md`, siguiendo
+  Liu et al., 2022 (*Flow Straight and Fast*):
+  - `flow_matching/rectified_flow.py`: `interpolate`
+    (`x_t = (1-t)·x_0 + t·x_1`), `target_velocity` (`x_1 - x_0`),
+    `sigma_t` (`t·sigma_noise`) y `loss_function` (MSE de la
+    velocidad, media sobre batch y píxeles, igual que el Algoritmo 2
+    del paper).
+  - `models/velocity_unet.py`: `VelocityNet` envuelve una
+    `ScoreNet(marginal_prob_std=None)` en `self.net`, así que no
+    duplica la UNet. Los pesos del checkpoint llevan el prefijo `net.`:
+    hay que cargarlo siempre con `VelocityNet()`.
+  - `sampling/rectified_flow_sampler.py`: Euler de `n_steps` pasos
+    uniformes de t=1 a t=0. Devuelve `(prior, x_0)` con `x_0` en
+    [0, 1], igual que `ProbabilityFlow.sample`.
+  - `training/rectified_flow_training.py`: bucle completo, calcado de
+    `ve_training.py`.
+  - Nuevo `tests/rf_sample_and_plot.py`: genera muestras con
+    N = 1, 2, 10, 50 pasos partiendo del mismo ruido en cada fila.
+- **Convención de tiempo (distinta a la del paper)**: en el repo
+  `x_0` = datos (t=0) y `x_1` = ruido (t=1); el paper usa la contraria.
+  *Por qué*: así coincide con la difusión VE y con los modelos de
+  consistencia (datos en t≈ε, ruido en t=T). El objetivo de RF es
+  simétrico en el tiempo, así que solo cambia el signo: al generar se
+  integra hacia atrás, con `dt < 0`.
+- **Renombrado `sigma_data` → `sigma_noise`** en `RectifiedFlow` y en
+  su script de entrenamiento (`--sigma-noise`). *Por qué*: en RF es la
+  desviación típica del **ruido** `x_1`, mientras que `sigma_data` en
+  `ConsistencyWrapper` es la de los **datos** (como en Song et al.,
+  2023). Con el mismo nombre era fácil pasar uno por otro.
+- Entrenado `checkpoints/mnist_all_rf.pth`: todo MNIST, 25 épocas,
+  Adam lr=1e-3, CPU (~36 min). Pérdida media por época: 0.28
+  (época 2) → 0.196 (época 25). Se estanca porque la pérdida de flow
+  matching tiene un mínimo no nulo: la red aprende
+  `E[x_1 - x_0 | x_t]`, no cada par concreto.
+- Resultados (`results/mnist_all_rf_samples.png`): con N=10 y N=50 los
+  dígitos son buenos y casi idénticos (el ODE está resuelto con ~10
+  pasos), con fondos limpios y 2-3 fallos de cada 10. Con N=1 sale la
+  misma mancha borrosa para cualquier ruido: la *media* de los datos,
+  tal como predice el paper para un 1-rectified flow. Es justo lo que
+  la destilación a modelo de consistencia debe resolver.
+- Pendiente para el equipo de destilación: tarea 11
+  (`RectifiedFlowTeacherAdapter.ode_step`, un paso de Euler
+  `x_t + (t_prev - t)·v(x_t, t)`). Ojo: `TeacherAdapter` declara `T` y
+  `eps`, pero ningún adaptador les da valor.
+- Posibles mejoras del maestro, si sobra tiempo: EMA de los pesos
+  (el paper la usa) y lr=2e-4. Si se aplican, aplicarlas también al
+  maestro VE para que la comparativa sea justa.
+
+---
+
 ## 2026-09-24 — Arquitectura para Rectified Flow + Consistency Models
 
 - Diseñada y creada la estructura de carpetas para el proyecto completo

@@ -14,10 +14,6 @@ Description:
     its raw output is *not* rescaled by a marginal_prob_std function,
     since it regresses a velocity field directly rather than a score.
 
-    TODO: implement, either by subclassing/reusing ScoreNet's blocks
-    directly (construct it with `marginal_prob_std=None`) or by
-    defining a thin wrapper module here.
-
 License:
     Proprietary. All rights reserved.
 """
@@ -27,6 +23,7 @@ from typing import List
 import torch
 
 from .base import BaseScoreModel
+from .score_unet import ScoreNet
 
 
 class VelocityNet(BaseScoreModel):
@@ -39,16 +36,19 @@ class VelocityNet(BaseScoreModel):
     ) -> None:
         """Initializes the VelocityNet.
 
+        Reuses the same UNet backbone as ScoreNet, but without the
+        marginal_prob_std output scaling.
+
         Args:
             channels: List of channel sizes for each UNet block.
             embed_dim: Embedding dimension for time encoding.
         """
         super().__init__()
-        raise NotImplementedError
+        self.backbone = ScoreNet(
+            channels=channels, embed_dim=embed_dim, marginal_prob_std=None
+        )
 
-    def forward(
-        self, x: torch.Tensor, t: torch.Tensor
-    ) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         """Predicts the velocity field at (x, t).
 
         Args:
@@ -58,4 +58,4 @@ class VelocityNet(BaseScoreModel):
         Returns:
             Predicted velocity tensor of shape (B, 1, H, W).
         """
-        raise NotImplementedError
+        return self.backbone(x, t)
