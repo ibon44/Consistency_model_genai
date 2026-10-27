@@ -19,7 +19,7 @@ Description:
       the corresponding full-trajectory solver).
     - RectifiedFlowTeacherAdapter wraps a `flow_matching.rectified_flow.
       RectifiedFlow` process and a trained VelocityNet, taking one
-      Euler step along the (deterministic, already-straight) RF ODE.
+      Euler step along the (deterministic, nearly straight) RF ODE.
 
     Both also expose `forward_sample` (x_0 -> x_t along the process'
     own forward noising, used by `consistency/distillation.py` to build
@@ -61,9 +61,7 @@ class TeacherAdapter(ABC):
         self.T = process.T
 
     @abstractmethod
-    def forward_sample(
-        self, x_0: torch.Tensor, t: torch.Tensor
-    ) -> torch.Tensor:
+    def forward_sample(self, x_0: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         """Samples x_t from the process' own forward noising of x_0.
 
         Args:
@@ -99,9 +97,7 @@ class TeacherAdapter(ABC):
 class VETeacherAdapter(TeacherAdapter):
     """Teacher adapter for a VE-diffusion probability-flow ODE."""
 
-    def forward_sample(
-        self, x_0: torch.Tensor, t: torch.Tensor
-    ) -> torch.Tensor:
+    def forward_sample(self, x_0: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         shape = (-1, *([1] * (x_0.dim() - 1)))
         noise = torch.randn_like(x_0)
         mu = self.process.mu_t(x_0, t)
@@ -122,7 +118,7 @@ class VETeacherAdapter(TeacherAdapter):
         # Probability flow ODE: dx/dt = f(x,t) - 0.5*g(t)^2*score(x,t)
         # (same right-hand side as sampling/probability_flow.py::ode_func,
         # here taking a single Euler step instead of a full solve_ivp).
-        dx_dt = drift - 0.5 * diffusion ** 2 * score
+        dx_dt = drift - 0.5 * diffusion**2 * score
         dt = (t_prev - t).view(*shape)
         return x_t + dt * dx_dt
 
@@ -130,9 +126,7 @@ class VETeacherAdapter(TeacherAdapter):
 class RectifiedFlowTeacherAdapter(TeacherAdapter):
     """Teacher adapter for the Rectified Flow ODE."""
 
-    def forward_sample(
-        self, x_0: torch.Tensor, t: torch.Tensor
-    ) -> torch.Tensor:
+    def forward_sample(self, x_0: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         noise = torch.randn_like(x_0)
         return self.process.interpolate(x_0, noise, t)
 
@@ -144,8 +138,9 @@ class RectifiedFlowTeacherAdapter(TeacherAdapter):
         with torch.no_grad():
             velocity = self.model(x_t, t)
 
-        # The Rectified Flow ODE dx/dt = v(x,t) has a constant velocity
-        # along a trajectory by construction, so a single Euler step is
-        # exact (not an approximation, unlike VETeacherAdapter.ode_step).
+        # One Euler step of the Rectified Flow ODE dx/dt = v(x,t). It is
+        # only exact if the learned paths are perfectly straight; a
+        # 1-RF's are close to straight but not exactly (that's what
+        # reflow improves), so this is an approximation.
         dt = (t_prev - t).view(*shape)
         return x_t + dt * velocity
