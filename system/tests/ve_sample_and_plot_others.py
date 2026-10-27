@@ -60,9 +60,9 @@ from utils import get_device
 
 
 # ============================== CONFIG ==============================
-CHECKPOINT_PATH = "./checkpoints/mnist_all_ve.pth"
+CHECKPOINT_PATH = "./checkpoints/mnist_all_ve_ema.pth"
 N_IMAGES = 5
-SEED = 42
+SEED = 41
 
 PC_NUM_STEPS = 1000
 PC_CORRECTOR_STEPS = 1

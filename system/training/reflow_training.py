@@ -32,7 +32,7 @@ Description:
     The 2-RF is then distilled into a consistency model with:
         python system/training/consistency_distillation_training.py \\
             --teacher rf --teacher-checkpoint ./checkpoints_rf/mnist_all_2rf_ema.pth \\
-            --run-suffix _reflow
+            --tag reflow
 
 License:
     Proprietary. All rights reserved.

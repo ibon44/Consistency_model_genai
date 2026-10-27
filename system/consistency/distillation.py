@@ -28,7 +28,6 @@ import torch
 import torch.nn as nn
 
 from .distances import squared_l2_distance
-from .schedules import DiscretizationSchedule, karras_time_steps
 from .teachers import TeacherAdapter
 
 
@@ -37,7 +36,7 @@ def consistency_distillation_loss(
     consistency_model_ema: nn.Module,
     teacher: TeacherAdapter,
     x_0: torch.Tensor,
-    discretization_schedule: DiscretizationSchedule,
+    discretization_schedule: Callable[[int], int],
     iteration: int,
     distance_fn: Callable[
         [torch.Tensor, torch.Tensor], torch.Tensor
@@ -51,7 +50,9 @@ def consistency_distillation_loss(
         teacher: Adapter exposing the teacher's ODE step and sigma_t.
         x_0: Mini-batch of training data.
         discretization_schedule: N(k) schedule for the number of
-            discretization steps of the teacher trajectory.
+            discretization steps of the teacher trajectory (a
+            `ConstantSchedule` for the paper's CD recipe, or the CT-style
+            `DiscretizationSchedule` curriculum).
         iteration: Current training iteration k, passed to the
             discretization schedule.
         distance_fn: Distance/metric between two consistency-model
@@ -64,10 +65,10 @@ def consistency_distillation_loss(
         Scalar consistency distillation loss.
     """
     # Number of discretization points N(k) for this iteration, and the
-    # non-uniform Karras time grid t_1=eps < ... < t_N=T they live on
-    # (denser near eps, see consistency/schedules.py::karras_time_steps).
-    N_k = discretization_schedule(iteration)
-    t_grid = karras_time_steps(N_k, teacher.eps, teacher.T).to(x_0.device)
+    # teacher's non-uniform Karras grid t_1=eps < ... < t_N=T they live
+    # on (see TeacherAdapter.time_grid).
+    N_k = int(discretization_schedule(iteration))
+    t_grid = teacher.time_grid(N_k).to(x_0.device)
 
     # Sample, per example in the batch, an adjacent pair of grid points
     # (t_n, t_{n+1}) -- n uniform in {0, ..., N_k-2} (0-indexed).

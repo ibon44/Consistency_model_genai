@@ -18,6 +18,7 @@ License:
 
 from __future__ import annotations
 
+import math
 from typing import Callable, Optional
 
 import torch
@@ -106,6 +107,22 @@ class VarianceExplodingDiffusion(DiffusionProcess):
         return torch.sqrt(
             0.5 * (self.sigma ** (2 * t) - 1.0) / log_sigma
         )
+
+    def sigma_inverse(self, sigma_t: torch.Tensor) -> torch.Tensor:
+        """Inverts `sigma_t`: returns the time t with sigma_t(t) = sigma_t.
+
+        Args:
+            sigma_t: Standard deviation tensor.
+
+        Returns:
+            Time tensor, same shape as sigma_t.
+        """
+        if self._custom_sigma_fn is not None:
+            raise NotImplementedError(
+                "sigma_inverse is only defined for the default VE sigma_t."
+            )
+        log_sigma = math.log(self.sigma)
+        return torch.log1p(2.0 * log_sigma * sigma_t ** 2) / (2.0 * log_sigma)
 
     def drift_coefficient(
         self, x_t: torch.Tensor, t: torch.Tensor

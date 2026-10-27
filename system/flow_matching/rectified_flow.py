@@ -102,6 +102,21 @@ class RectifiedFlow(FlowProcess):
         """
         return t * self.sigma_noise
 
+    def sigma_inverse(self, sigma_t: torch.Tensor) -> torch.Tensor:
+        """Inverts `sigma_t`: returns the time t with sigma_t(t) = sigma_t.
+
+        Used to build Karras time grids spaced in sigma (see
+        `consistency/schedules.py::karras_sigma_time_steps` and
+        `ConsistencySampler.karras_intermediate_times`).
+
+        Args:
+            sigma_t: Standard deviation tensor.
+
+        Returns:
+            Time tensor, same shape as sigma_t.
+        """
+        return sigma_t / self.sigma_noise
+
     def loss_function(
         self,
         velocity_model: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],

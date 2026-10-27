@@ -14,15 +14,16 @@ Description:
     `marginal_prob_std=None`) to enforce the boundary condition
     f_theta(x, eps) = x:
 
-        f_theta(x, t) = c_skip(t) * x + c_out(t) * backbone(x, t)
+        f_theta(x, t) = c_skip(t) * x + c_out(t) * backbone(c_in(t) * x, t)
 
-    where c_skip/c_out are computed from the teacher process' sigma_t
-    and T/eps (see `diffusion.base.DiffusionProcess.sigma_t` and
+    where c_skip/c_out/c_in are computed from the teacher process'
+    sigma_t and eps (see `diffusion.base.DiffusionProcess.sigma_t` and
     `flow_matching.base.FlowProcess.sigma_t`), so this wrapper is
     agnostic to whether the teacher is the VE diffusion process or
-    Rectified Flow.
-
-    TODO: implement `c_skip`, `c_out`, and `forward`.
+    Rectified Flow. c_in = 1/sqrt(sigma^2 + sigma_data^2) is the EDM
+    input preconditioning (Karras et al., 2022) that Song et al. (2023)
+    build on: it keeps the backbone's input at roughly unit variance at
+    every noise level (raw VE inputs go up to std ~10 at t=T).
 
 License:
     Proprietary. All rights reserved.
@@ -72,8 +73,12 @@ class ConsistencyWrapper(nn.Module):
         sigma_eps = self.sigma_t(torch.full_like(t, self.eps))
         return self.sigma_data*(sigma - sigma_eps) / torch.sqrt(sigma**2 + self.sigma_data**2)
 
+    def c_in(self, t: torch.Tensor) -> torch.Tensor:
+        sigma = self.sigma_t(t)
+        return 1.0 / torch.sqrt(sigma**2 + self.sigma_data**2)
+
     def forward(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
-        """Evaluates f_theta(x, t) = c_skip(t)*x + c_out(t)*backbone(x, t).
+        """Evaluates f_theta(x, t) = c_skip(t)*x + c_out(t)*backbone(c_in(t)*x, t).
 
         Args:
             x: Input tensor of shape (B, 1, H, W).
@@ -85,4 +90,4 @@ class ConsistencyWrapper(nn.Module):
         shape = (-1, *([1] * (x.dim() - 1)))
         c_skip = self.c_skip(t).view(*shape)
         c_out = self.c_out(t).view(*shape)
-        return c_skip * x + c_out * self.backbone(x, t)
+        return c_skip * x + c_out * self.backbone(self.c_in(t).view(*shape) * x, t)

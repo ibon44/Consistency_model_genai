@@ -19,22 +19,36 @@ Description:
     Unlike `ve_training.py`, this trains for a fixed number of
     iterations rather than epochs (N(k)/mu(k) in `consistency/
     schedules.py` are schedules over iteration count k, matching the
-    paper), and the checkpoint saved at the end is the EMA target
-    model (f_{theta-}), not the online model (f_theta) -- the EMA copy
-    is the one meant for sampling; the online copy is noisier since
-    it's updated every step.
+    paper).
+
+    Default recipe (--schedule fixed): a fixed number of teacher
+    discretization points N (Karras grid in sigma) with a Heun teacher
+    step, and a fixed target-EMA rate mu. N must be large (150): the
+    network only ever sees the N grid times, and with a small N (the
+    paper's 18) this small UNet does not generalize to the off-grid
+    times that multistep sampling re-noises to, producing garbage for
+    >= 2 steps (1 step, always at t=T, looks fine).
+    --schedule curriculum uses the CT-style N(k)/mu(k) curriculum
+    instead (kept for comparison).
+
+    Three copies of the model are kept:
+      - cm (f_theta): the online model, updated by Adam every step.
+      - cm_target (f_{theta-}): the EMA *target network* used inside
+        the loss, with rate mu.
+      - cm_sample: a separate, slower EMA (rate SAMPLE_EMA_RATE) used
+        only for sampling, as in the reference implementation; this is
+        the checkpoint that gets saved as <run_name>.pth.
 
     A run of this length (thousands of iterations, potentially hours on
     CPU) can get interrupted, so progress is checkpointed periodically,
     not only at the very end:
       - <checkpoint_dir>/<run_name>.pth is overwritten every
-        CHECKPOINT_EVERY iterations with the current EMA model, so
+        CHECKPOINT_EVERY iterations with the current sampling EMA, so
         there's always a usable (if not fully converged) model to
         sample from without waiting for the full run to finish.
       - <checkpoint_dir>/<run_name>_resume.pth additionally stores the
-        online model, optimizer state and iteration count, so the run
-        itself can be continued (not just its EMA snapshot reused) via
-        --resume.
+        online/target models, optimizer state, iteration count and RNG
+        state, so the run itself can be continued via --resume.
 
 License:
     Proprietary. All rights reserved.
@@ -58,7 +72,11 @@ from torch.utils.data import DataLoader
 
 from consistency.distances import pseudo_huber_distance, squared_l2_distance
 from consistency.distillation import consistency_distillation_loss
-from consistency.schedules import DiscretizationSchedule, EMADecaySchedule
+from consistency.schedules import (
+    ConstantSchedule,
+    DiscretizationSchedule,
+    EMADecaySchedule,
+)
 from consistency.teachers import RectifiedFlowTeacherAdapter, VETeacherAdapter
 from data import get_dataloader
 from diffusion.ve import VarianceExplodingDiffusion
@@ -74,7 +92,7 @@ TEACHER: Literal["ve", "rf"] = "ve"
 DIGIT: Optional[int] = None
 
 BATCH_SIZE = 64
-N_ITERATIONS = 100000
+N_ITERATIONS = 40000
 LEARNING_RATE = 4.0e-4
 SIGMA = 25.0             # must match the VE teacher's own training sigma
 SIGMA_NOISE = 1.0        # must match the RF teacher's own training sigma_noise
@@ -91,12 +109,19 @@ CHECKPOINT_DIRS = {"ve": "./checkpoints", "rf": "./checkpoints_rf"}
 # for VE, and the EMA weights <dir>/<teacher_run_name>_ema.pth for RF
 # (rectified_flow_training.py saves both; the EMA copy is the better
 # teacher), with <dir> = CHECKPOINT_DIRS[teacher].
+# --teacher-tag ema picks <dir>/<teacher_run_name>_ema.pth for either.
 TEACHER_CHECKPOINT: Optional[str] = None
 # Distance d(x,y) for the distillation loss ("huber" is the stabler,
 # outlier-robust choice from Song & Dhariwal, 2024; "l2" is the
 # original Consistency Models paper's choice, kept for comparison).
 DISTANCE: Literal["huber", "l2"] = "huber"
 DISTANCE_FNS = {"huber": pseudo_huber_distance, "l2": squared_l2_distance}
+# "fixed": paper's CD recipe (constant N and mu). "curriculum": CT-style
+# N(k)/mu(k) from consistency/schedules.py.
+SCHEDULE: Literal["fixed", "curriculum"] = "fixed"
+N_SCALES = 150           # dense grid: the net must see (almost) every t, see docstring
+TARGET_EMA_RATE = 0.95   # fixed mu for the target network
+SAMPLE_EMA_RATE = 0.9999 # separate EMA of the online model, used for sampling
 # ======================================================================
 
 
@@ -118,10 +143,13 @@ class TrainConfig:
     data_dir: str = DATA_DIR
     checkpoint_dir: Optional[str] = None  # None -> CHECKPOINT_DIRS[teacher]
     distance: Literal["huber", "l2"] = DISTANCE
+    schedule: Literal["fixed", "curriculum"] = SCHEDULE
+    n_scales: int = N_SCALES
+    target_ema_rate: float = TARGET_EMA_RATE
+    sample_ema_rate: float = SAMPLE_EMA_RATE
+    tag: Optional[str] = None
+    teacher_tag: Optional[str] = None
     teacher_checkpoint: Optional[str] = TEACHER_CHECKPOINT
-    # Appended to run_name (e.g. "_noema"), so variants of the same
-    # teacher/digit don't overwrite each other's checkpoints.
-    run_suffix: str = ""
 
     def __post_init__(self) -> None:
         if self.checkpoint_dir is None:
@@ -130,13 +158,14 @@ class TrainConfig:
     @property
     def teacher_run_name(self) -> str:
         base = f"mnist_digit{self.digit}" if self.digit is not None else "mnist_all"
-        return f"{base}_{self.teacher}"
+        name = f"{base}_{self.teacher}"
+        return f"{name}_{self.teacher_tag}" if self.teacher_tag else name
 
     @property
     def teacher_checkpoint_path(self) -> str:
         if self.teacher_checkpoint is not None:
             return self.teacher_checkpoint
-        suffix = "_ema" if self.teacher == "rf" else ""
+        suffix = "_ema" if self.teacher == "rf" and not self.teacher_tag else ""
         return os.path.join(
             self.checkpoint_dir, f"{self.teacher_run_name}{suffix}.pth"
         )
@@ -144,7 +173,8 @@ class TrainConfig:
     @property
     def run_name(self) -> str:
         base = f"mnist_digit{self.digit}" if self.digit is not None else "mnist_all"
-        return f"{base}_cm_{self.teacher}{self.run_suffix}"
+        name = f"{base}_cm_{self.teacher}"
+        return f"{name}_{self.tag}" if self.tag else name
 
     @property
     def checkpoint_path(self) -> str:
@@ -184,8 +214,22 @@ def parse_args() -> TrainConfig:
         help="Distance d(x,y) for the distillation loss (see consistency/distances.py)."
     )
     parser.add_argument(
-        "--run-suffix", default="",
-        help="Appended to the output name, e.g. '_noema' -> mnist_all_cm_rf_noema.pth."
+        "--schedule", choices=["fixed", "curriculum"], default=SCHEDULE,
+        help="fixed N/mu (paper's CD recipe) or the CT-style N(k)/mu(k) curriculum."
+    )
+    parser.add_argument(
+        "--n-scales", type=int, default=N_SCALES,
+        help="Number of teacher discretization points N for --schedule fixed."
+    )
+    parser.add_argument(
+        "--tag", default=None,
+        help="Optional suffix for the run name, e.g. --tag noema saves "
+             "<checkpoint_dir>/mnist_all_cm_rf_noema.pth."
+    )
+    parser.add_argument(
+        "--teacher-tag", default=None,
+        help="Suffix of the teacher checkpoint, e.g. --teacher-tag ema loads "
+             "checkpoints/mnist_all_ve_ema.pth."
     )
     args = parser.parse_args()
     return TrainConfig(
@@ -201,8 +245,11 @@ def parse_args() -> TrainConfig:
         checkpoint_every=args.checkpoint_every,
         resume=args.resume,
         distance=args.distance,
+        schedule=args.schedule,
+        n_scales=args.n_scales,
+        tag=args.tag,
+        teacher_tag=args.teacher_tag,
         teacher_checkpoint=args.teacher_checkpoint,
-        run_suffix=args.run_suffix,
     )
 
 
@@ -250,13 +297,16 @@ def build_teacher(config: TrainConfig, device: torch.device):
 def build_consistency_models(
     config: TrainConfig, process, device: torch.device
 ):
-    """Builds the online consistency model and its frozen EMA copy.
+    """Builds the online consistency model and its two frozen EMA copies.
 
-    Both wrap a *raw* backbone (no marginal_prob_std scaling -- that's
+    All wrap a *raw* backbone (no marginal_prob_std scaling -- that's
     what `ConsistencyWrapper`'s own c_skip/c_out replace) of the same
     architecture family as the teacher's, but with fresh random
     weights: the consistency model is trained from scratch, it does
     not start from the teacher's weights.
+
+    Returns:
+        Tuple (cm, cm_target, cm_sample).
     """
     if config.teacher == "ve":
         online_backbone = ScoreNet(marginal_prob_std=None)
@@ -270,11 +320,12 @@ def build_consistency_models(
         sigma_t=process.sigma_t,
     ).to(device)
 
-    cm_ema = copy.deepcopy(cm)
-    for p in cm_ema.parameters():
+    cm_target = copy.deepcopy(cm)
+    cm_sample = copy.deepcopy(cm)
+    for p in itertools.chain(cm_target.parameters(), cm_sample.parameters()):
         p.requires_grad_(False)
 
-    return cm, cm_ema
+    return cm, cm_target, cm_sample
 
 
 def update_ema(cm_ema: torch.nn.Module, cm: torch.nn.Module, mu: float) -> None:
@@ -338,13 +389,22 @@ def train(config: TrainConfig) -> None:
     )
 
     teacher, process = build_teacher(config, device)
-    cm, cm_ema = build_consistency_models(config, process, device)
+    cm, cm_target, cm_sample = build_consistency_models(config, process, device)
     optimizer = optim.Adam(cm.parameters(), lr=config.lr)
     distance_fn = DISTANCE_FNS[config.distance]
-    logger.info("Distance function: %s", config.distance)
 
-    discretization_schedule = DiscretizationSchedule(K=config.n_iterations)
-    ema_schedule = EMADecaySchedule(discretization_schedule)
+    if config.schedule == "fixed":
+        discretization_schedule = ConstantSchedule(config.n_scales)
+        ema_schedule = ConstantSchedule(config.target_ema_rate)
+    else:
+        discretization_schedule = DiscretizationSchedule(K=config.n_iterations)
+        ema_schedule = EMADecaySchedule(discretization_schedule)
+    logger.info(
+        "distance=%s | schedule=%s (N=%s) | sample EMA=%s",
+        config.distance, config.schedule,
+        config.n_scales if config.schedule == "fixed" else "curriculum",
+        config.sample_ema_rate,
+    )
 
     os.makedirs(config.checkpoint_dir, exist_ok=True)
 
@@ -356,7 +416,8 @@ def train(config: TrainConfig) -> None:
             config.resume_checkpoint_path, map_location=device, weights_only=False
         )
         cm.load_state_dict(checkpoint["cm"])
-        cm_ema.load_state_dict(checkpoint["cm_ema"])
+        cm_target.load_state_dict(checkpoint["cm_target"])
+        cm_sample.load_state_dict(checkpoint["cm_sample"])
         optimizer.load_state_dict(checkpoint["optimizer"])
         start_iteration = checkpoint["iteration"] + 1
         # Older resume checkpoints don't have it; resuming from them
@@ -388,37 +449,44 @@ def train(config: TrainConfig) -> None:
 
         optimizer.zero_grad()
         loss = consistency_distillation_loss(
-            cm, cm_ema, teacher, x, discretization_schedule, iteration,
+            cm, cm_target, teacher, x, discretization_schedule, iteration,
             distance_fn=distance_fn,
         )
         loss.backward()
         optimizer.step()
 
         mu = ema_schedule(iteration)
-        update_ema(cm_ema, cm, mu)
+        update_ema(cm_target, cm, mu)
+        # Warm-up so early checkpoints aren't dominated by the random
+        # init (a plain 0.9999 EMA needs ~10k steps to forget it).
+        update_ema(
+            cm_sample, cm,
+            min(config.sample_ema_rate, (1 + iteration) / (10 + iteration)),
+        )
 
         running_loss += loss.item()
         window_size += 1
 
-        if iteration % config.log_every == 0:
+        if (iteration + 1) % config.log_every == 0:
             logger.info(
-                "[%d/%d] N=%d mu=%.5f - loss: %.4f (avg last %d: %.4f)",
-                iteration, config.n_iterations,
-                discretization_schedule(iteration), mu, loss.item(),
+                "[%d/%d] N=%d mu=%.5f - avg loss (last %d): %.4f",
+                iteration + 1, config.n_iterations,
+                discretization_schedule(iteration), mu,
                 window_size, running_loss / window_size,
             )
             running_loss = 0.0
             window_size = 0
 
         if iteration > 0 and iteration % config.checkpoint_every == 0:
-            # Usable EMA snapshot -- always the latest one for sampling,
+            # Usable snapshot -- always the latest one for sampling,
             # even if the run gets interrupted before finishing.
-            torch.save(cm_ema.state_dict(), config.checkpoint_path)
+            torch.save(cm_sample.state_dict(), config.checkpoint_path)
             # Full resume state -- lets the *run itself* be continued.
             torch.save(
                 {
                     "cm": cm.state_dict(),
-                    "cm_ema": cm_ema.state_dict(),
+                    "cm_target": cm_target.state_dict(),
+                    "cm_sample": cm_sample.state_dict(),
                     "optimizer": optimizer.state_dict(),
                     "iteration": iteration,
                     "rng_state": get_rng_state(),
@@ -433,10 +501,8 @@ def train(config: TrainConfig) -> None:
             window_size, running_loss / window_size,
         )
 
-    # Save the EMA model: it's the one used for sampling (Algorithm 1),
-    # the online `cm` is only an intermediate optimization target.
-    torch.save(cm_ema.state_dict(), config.checkpoint_path)
-    logger.info("Consistency model (EMA) saved to %s", config.checkpoint_path)
+    torch.save(cm_sample.state_dict(), config.checkpoint_path)
+    logger.info("Consistency model (sampling EMA) saved to %s", config.checkpoint_path)
 
 
 if __name__ == "__main__":

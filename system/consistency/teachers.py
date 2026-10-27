@@ -14,9 +14,10 @@ Description:
     which one it is:
 
     - VETeacherAdapter wraps a `diffusion.ve.VarianceExplodingDiffusion`
-      process and a trained ScoreNet, taking one Euler/Heun step along
-      the probability flow ODE (see `sampling/probability_flow.py` for
-      the corresponding full-trajectory solver).
+      process and a trained ScoreNet, taking one Heun (default) or
+      Euler step along the probability flow ODE (see `sampling/
+      probability_flow.py` for the corresponding full-trajectory
+      solver), on a Karras grid spaced in sigma (`time_grid`).
     - RectifiedFlowTeacherAdapter wraps a `flow_matching.rectified_flow.
       RectifiedFlow` process and a trained VelocityNet, taking one
       Euler step along the (deterministic, nearly straight) RF ODE.
@@ -36,6 +37,8 @@ from abc import ABC, abstractmethod
 from typing import Any, Callable
 
 import torch
+
+from .schedules import karras_sigma_time_steps, karras_time_steps
 
 
 class TeacherAdapter(ABC):
@@ -93,11 +96,47 @@ class TeacherAdapter(ABC):
         `flow_matching.base.FlowProcess.sigma_t`)."""
         return self.process.sigma_t(t)
 
+    def time_grid(self, N: int) -> torch.Tensor:
+        """N-point time grid eps=t_1 < ... < t_N=T for distillation."""
+        return karras_time_steps(N, self.eps, self.T)
+
 
 class VETeacherAdapter(TeacherAdapter):
     """Teacher adapter for a VE-diffusion probability-flow ODE."""
 
-    def forward_sample(self, x_0: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    def __init__(
+        self, process: Any, model: Callable, eps: float = 1.0e-5, heun: bool = True
+    ) -> None:
+        """Initializes the VETeacherAdapter.
+
+        Args:
+            process: The VE diffusion process.
+            model: The trained score network.
+            eps: Lower time bound (see TeacherAdapter).
+            heun: Take a 2nd-order Heun step (as in Song et al., 2023)
+                instead of a 1st-order Euler step.
+        """
+        super().__init__(process, model, eps)
+        self.heun = heun
+
+    def time_grid(self, N: int) -> torch.Tensor:
+        """Karras grid spaced in sigma rather than in t."""
+        return karras_sigma_time_steps(
+            N, self.eps, self.T, self.process.sigma_t, self.process.sigma_inverse
+        )
+
+    def _pf_ode_rhs(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+        """Probability flow ODE: dx/dt = f(x,t) - 0.5*g(t)^2*score(x,t)."""
+        shape = (-1, *([1] * (x_t.dim() - 1)))
+        with torch.no_grad():
+            score = self.model(x_t, t)
+        drift = self.process.drift_coefficient(x_t, t)
+        diffusion = self.process.diffusion_coefficient(t).view(*shape)
+        return drift - 0.5 * diffusion ** 2 * score
+
+    def forward_sample(
+        self, x_0: torch.Tensor, t: torch.Tensor
+    ) -> torch.Tensor:
         shape = (-1, *([1] * (x_0.dim() - 1)))
         noise = torch.randn_like(x_0)
         mu = self.process.mu_t(x_0, t)
@@ -108,19 +147,14 @@ class VETeacherAdapter(TeacherAdapter):
         self, x_t: torch.Tensor, t: torch.Tensor, t_prev: torch.Tensor
     ) -> torch.Tensor:
         shape = (-1, *([1] * (x_t.dim() - 1)))
-
-        with torch.no_grad():
-            score = self.model(x_t, t)
-
-        drift = self.process.drift_coefficient(x_t, t)
-        diffusion = self.process.diffusion_coefficient(t).view(*shape)
-
-        # Probability flow ODE: dx/dt = f(x,t) - 0.5*g(t)^2*score(x,t)
-        # (same right-hand side as sampling/probability_flow.py::ode_func,
-        # here taking a single Euler step instead of a full solve_ivp).
-        dx_dt = drift - 0.5 * diffusion**2 * score
         dt = (t_prev - t).view(*shape)
-        return x_t + dt * dx_dt
+
+        d1 = self._pf_ode_rhs(x_t, t)
+        x_euler = x_t + dt * d1
+        if not self.heun:
+            return x_euler
+        d2 = self._pf_ode_rhs(x_euler, t_prev)
+        return x_t + dt * 0.5 * (d1 + d2)
 
 
 class RectifiedFlowTeacherAdapter(TeacherAdapter):
