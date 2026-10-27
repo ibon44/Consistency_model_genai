@@ -10,7 +10,7 @@ Authors:
 Description:
     Loads a consistency-model checkpoint distilled from the VE teacher
     (see `training/consistency_distillation_training.py`) and visualizes
-    samples at 1, 2 and 4 steps side by side (Algorithm 1, `sampling/
+    samples at several step counts side by side (Algorithm 1, `sampling/
     consistency_sampler.py`) -- the core speed/quality comparison the
     project measures (objectives 3-4). All step counts are sampled from
     the SAME initial noise per row, so differences across columns come
@@ -26,12 +26,11 @@ import sys
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from typing import List, Optional
+from typing import List
 
 import matplotlib.pyplot as plt
 import torch
 
-from consistency.schedules import karras_time_steps
 from diffusion.ve import VarianceExplodingDiffusion
 from models.consistency_wrapper import ConsistencyWrapper
 from models.score_unet import ScoreNet
@@ -48,33 +47,6 @@ SIGMA_DATA = 0.5    # must match consistency_distillation_training.py
 EPS = 1.0e-5
 SEED = 42
 # ======================================================================
-
-
-def build_intermediate_times(
-    n_steps: int, eps: float, T: float
-) -> Optional[List[float]]:
-    """Builds the decreasing intermediate time points for n_steps calls.
-
-    n_steps total network evaluations need (n_steps - 1) re-noising
-    points in between, taken from the same Karras grid used in
-    training (`consistency/schedules.py::karras_time_steps`).
-
-    Args:
-        n_steps: Total number of consistency-model evaluations wanted
-            (1 = pure 1-step generation).
-        eps: Lower time bound.
-        T: Upper time bound.
-
-    Returns:
-        None for n_steps=1 (1-step sampling), otherwise a list of
-        (n_steps - 1) decreasing time points in (eps, T).
-    """
-    if n_steps <= 1:
-        return None
-    grid = karras_time_steps(n_steps, eps, T)
-    # grid ascends eps=t_1 < ... < t_n=T; drop T (already the starting
-    # point of sampling) and reverse to get a decreasing sequence.
-    return grid[:-1].flip(0).tolist()
 
 
 def plot_step_comparison(
@@ -125,7 +97,7 @@ def main() -> None:
 
     columns = []
     for n_steps in STEP_COUNTS:
-        intermediate_times = build_intermediate_times(n_steps, EPS, process.T)
+        intermediate_times = sampler.karras_intermediate_times(n_steps)
         x = sampler.sample(
             shape, cm, device=device,
             intermediate_times=intermediate_times, x_T=x_T,

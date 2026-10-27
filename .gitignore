@@ -216,3 +216,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local-only state: resume checkpoints (large, optimizer state) and the
+# MNIST copy downloaded when scripts are run from inside system/
+checkpoints/*_resume.pth
+system/data/MNIST/

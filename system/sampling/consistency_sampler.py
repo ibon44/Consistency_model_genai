@@ -40,6 +40,8 @@ from typing import Any, List, Optional, Tuple
 import torch
 from torch import Tensor
 
+from consistency.schedules import karras_sigma_time_steps
+
 from .base import Sampler
 
 
@@ -59,6 +61,33 @@ class ConsistencySampler(Sampler):
         """
         super().__init__(process)
         self.eps = eps
+
+    def karras_intermediate_times(
+        self, n_steps: int, rho: float = 7.0
+    ) -> Optional[List[float]]:
+        """Default re-noising times for n_steps consistency evaluations.
+
+        Builds an (n_steps + 1)-point Karras grid in sigma between
+        sigma_t(eps) and sigma_t(T) and keeps only its interior points,
+        so every re-noising step adds a non-zero amount of noise (the
+        endpoints are T, where sampling starts, and eps, where
+        re-noising would add nothing).
+
+        Args:
+            n_steps: Total number of consistency-model evaluations.
+            rho: Karras skew parameter.
+
+        Returns:
+            None for n_steps <= 1, otherwise (n_steps - 1) strictly
+            decreasing times in (eps, T).
+        """
+        if n_steps <= 1:
+            return None
+        grid = karras_sigma_time_steps(
+            n_steps + 1, self.eps, self.process.T,
+            self.process.sigma_t, self.process.sigma_inverse, rho,
+        )
+        return grid[1:-1].flip(0).tolist()
 
     def sample(
         self,
@@ -94,8 +123,10 @@ class ConsistencySampler(Sampler):
             x_T = self.process.sample_prior(shape, device=device)
         t = torch.full((batch_size,), self.process.T, device=device)
 
+        # Every x_0 estimate is clamped to the data range before being
+        # re-noised (clip_denoised in the reference implementation).
         with torch.no_grad():
-            x = consistency_model(x_T, t)
+            x = consistency_model(x_T, t).clamp(-1.0, 1.0)
 
         if intermediate_times:
             sigma_eps = self.process.sigma_t(
@@ -113,6 +144,6 @@ class ConsistencySampler(Sampler):
 
                 t_tau = torch.full((batch_size,), tau, device=device)
                 with torch.no_grad():
-                    x = consistency_model(x_tau, t_tau)
+                    x = consistency_model(x_tau, t_tau).clamp(-1.0, 1.0)
 
         return x

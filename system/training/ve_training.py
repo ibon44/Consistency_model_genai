@@ -14,11 +14,17 @@ Description:
     (dataloader filtering, checkpoint naming, logging) adapts
     automatically.
 
+    Trains with cosine LR decay and keeps an EMA copy of the weights; the
+    saved checkpoint is the EMA model (checkpoints/mnist_all_ve_ema.pth),
+    which gives cleaner samples than the raw weights. --ema-rate 0 turns
+    EMA off and saves to mnist_all_ve.pth instead.
+
 License:
     Proprietary. All rights reserved.
 """
 
 import argparse
+import copy
 import os
 import sys
 from dataclasses import dataclass
@@ -43,10 +49,11 @@ from utils import get_device, get_logger, set_seed
 DIGIT: Optional[int] = None
 
 BATCH_SIZE = 64
-N_EPOCHS = 40
+N_EPOCHS = 60
 LEARNING_RATE = 1.0e-3
 SIGMA = 25.0            # VE diffusion process base standard deviation
 SEED = 42
+EMA_RATE = 0.999         # EMA of the weights, used for the saved checkpoint (0 disables)
 LOG_EVERY_N_BATCHES = 100
 DATA_DIR = "./data"
 CHECKPOINT_DIR = "./checkpoints"
@@ -61,13 +68,15 @@ class TrainConfig:
     lr: float = LEARNING_RATE
     sigma: float = SIGMA
     seed: int = SEED
+    ema_rate: float = EMA_RATE
     log_every: int = LOG_EVERY_N_BATCHES
     data_dir: str = DATA_DIR
     checkpoint_dir: str = CHECKPOINT_DIR
 
     @property
     def run_name(self) -> str:
-        return f"mnist_digit{self.digit}_ve" if self.digit is not None else "mnist_all_ve"
+        base = f"mnist_digit{self.digit}_ve" if self.digit is not None else "mnist_all_ve"
+        return f"{base}_ema" if self.ema_rate > 0 else base
 
     @property
     def checkpoint_path(self) -> str:
@@ -90,6 +99,11 @@ def parse_args() -> TrainConfig:
     parser.add_argument("--lr", type=float, default=LEARNING_RATE)
     parser.add_argument("--sigma", type=float, default=SIGMA)
     parser.add_argument("--seed", type=int, default=SEED)
+    parser.add_argument(
+        "--ema-rate", type=float, default=EMA_RATE,
+        help="EMA decay of the weights saved to the checkpoint; 0 disables "
+             "EMA (and the '_ema' suffix on the checkpoint name)."
+    )
     args = parser.parse_args()
     return TrainConfig(
         digit=args.digit,
@@ -98,6 +112,7 @@ def parse_args() -> TrainConfig:
         lr=args.lr,
         sigma=args.sigma,
         seed=args.seed,
+        ema_rate=args.ema_rate,
     )
 
 
@@ -126,6 +141,14 @@ def train(config: TrainConfig) -> None:
     model = ScoreNet(marginal_prob_std=diffusion_process.sigma_t).to(device)
     optimizer = optim.Adam(model.parameters(), lr=config.lr)
 
+    # Cosine decay to 0 and an EMA copy of the weights: the saved model
+    # is the EMA one. A noisy constant-lr snapshot gives visibly worse
+    # samples, especially with the deterministic probability-flow ODE.
+    total_steps = config.n_epochs * len(loader)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_steps)
+    ema_model = copy.deepcopy(model) if config.ema_rate > 0 else model
+    step = 0
+
     for epoch in range(config.n_epochs):
         model.train()
         running_loss = 0.0
@@ -137,6 +160,14 @@ def train(config: TrainConfig) -> None:
             loss = diffusion_process.loss_function(model, x)
             loss.backward()
             optimizer.step()
+            scheduler.step()
+
+            if config.ema_rate > 0:
+                step += 1
+                rate = min(config.ema_rate, (1 + step) / (10 + step))
+                with torch.no_grad():
+                    for p_ema, p in zip(ema_model.parameters(), model.parameters()):
+                        p_ema.mul_(rate).add_(p, alpha=1.0 - rate)
 
             running_loss += loss.item()
 
@@ -152,7 +183,7 @@ def train(config: TrainConfig) -> None:
         )
 
     os.makedirs(config.checkpoint_dir, exist_ok=True)
-    torch.save(model.state_dict(), config.checkpoint_path)
+    torch.save(ema_model.state_dict(), config.checkpoint_path)
     logger.info("Model saved to %s", config.checkpoint_path)
 
 

@@ -31,7 +31,7 @@ from utils import get_device, plot_image_evolution
 
 
 # ============================== CONFIG ==============================
-CHECKPOINT_PATH = "./checkpoints/mnist_all_ve.pth"
+CHECKPOINT_PATH = "./checkpoints/mnist_all_ve_ema.pth"
 N_IMAGES = 3
 T = 1.0
 T_END = 1.0e-3
