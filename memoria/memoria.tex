@@ -6,13 +6,15 @@
 \usepackage{microtype}
 \usepackage{amsmath,amssymb}
 \usepackage{graphicx}
+% Cada figura se queda dentro de su sección (no se va detrás de la bibliografía).
+\usepackage[section]{placeins}
 \usepackage{booktabs}
 \usepackage{xcolor}
 \usepackage{url}
 \usepackage[hidelinks]{hyperref}
 
 % Las figuras se leen directamente de results/
-\graphicspath{{../results/}}
+\graphicspath{{../results/}{../figures/}}
 
 % Marca de texto pendiente.
 \newcommand{\pendiente}[1]{\textcolor{red}{[PENDIENTE\ifx\relax#1\relax\else: #1\fi]}}
@@ -102,8 +104,12 @@ with the previous ones; adapting the architecture to color images with
 CIFAR-10~\cite{krizhevsky2009cifar}; and developing a class-conditional
 consistency model able to generate a given digit.
 
-All four main objectives have been met.
-\pendiente{decidir qué extensiones se incluyen en la entrega.}
+All four main objectives have been met. Of the extensions, only the first
+one, consistency training, was carried out; color images and conditional
+generation were left out for lack of time. In addition, and following a
+suggestion made during the course, we trained a Rectified Flow teacher and
+distilled it as well, so that the diffusion teacher of the proposal can be
+compared with a flow-matching one.
 
 % ---------------------------------------------------------------------------
 \section{Related work and state of the art}
@@ -148,22 +154,241 @@ in which we also compare a diffusion model and a Rectified Flow as teachers.
 % ---------------------------------------------------------------------------
 \section{Methodology}
 \label{sec:methodology}
-\pendiente{}
+
+We train two teachers on MNIST, a Variance Exploding (VE) diffusion model and
+a Rectified Flow (RF), and distill each of them into a consistency model. A
+third consistency model is trained from scratch with CT. All models use the
+same network, so that differences between them come from how they are
+trained and not from their capacity. Everything is implemented in PyTorch;
+the code is in the project repository.
 
 \subsection{Data and architecture}
-\pendiente{}
+\label{sec:data}
+
+We use the 60\,000 training images of MNIST, $28\times28$ in grayscale, with
+pixel values scaled to $[-1, 1]$ and no data augmentation. The 10\,000 test
+images are only used in the evaluation (Section~\ref{sec:evaluation}).
+
+Every model is built on the same small U-Net~\cite{ronneberger2015unet}. The
+encoder has four convolutional levels with 32, 64, 128 and 256 channels, the
+last three with stride 2, and the decoder mirrors it with transposed
+convolutions and skip connections. Each level uses group normalization and
+the SiLU activation. The time $t$ is encoded with 256 Gaussian random Fourier
+features followed by a linear layer, and this embedding is added to the
+feature maps after every convolution except the last one. The network has 1\,115\,425
+parameters. The three uses of it differ only in how its output is read: the
+score network divides it by the noise level $\sigma(t)$, the velocity network
+takes it as it is, and the consistency models wrap it as described in
+Section~\ref{sec:cm}.
 
 \subsection{Teacher models}
-\pendiente{}
+\label{sec:teachers}
+
+In both teachers the data lie at $t = 0$ and the noise at $t = T = 1$, and the
+training times are drawn from $[\varepsilon, 1]$ with $\varepsilon = 10^{-5}$.
+Using the same time convention
+lets the consistency models be trained and sampled with the same code for
+either teacher.
+
+\paragraph{VE diffusion.} The forward process only adds Gaussian noise,
+$x_t = x_0 + \sigma(t)\,z$ with $z \sim \mathcal{N}(0, I)$ and
+\begin{equation}
+  \sigma(t) = \sqrt{\frac{\sigma^{2t} - 1}{2 \ln \sigma}}, \qquad \sigma = 25,
+\end{equation}
+which gives a noise standard deviation of about 9.85 at $t = 1$. The score
+network $s_\theta$ is trained with denoising score
+matching~\cite{song2021sde}, minimizing
+$\mathbb{E}\,\|\sigma(t)\, s_\theta(x_t, t) + z\|^2$ with $t$ uniform in
+$[\varepsilon, 1]$. We train it for 60 epochs with Adam, batch size 64 and a
+learning rate of $10^{-3}$ with cosine decay to zero, and keep an exponential
+moving average (EMA) of the weights with rate 0.999, which is the model we
+use. \pendiente{confirmar que mnist\_all\_ve\_ema.pth se entrenó con esta
+receta (valores por defecto de ve\_training.py); no hay log de ese
+entrenamiento en logs/.} Samples are obtained by integrating the probability flow ODE
+\begin{equation}
+  \frac{dx}{dt} = -\frac{1}{2}\, g(t)^2\, s_\theta(x, t), \qquad g(t) = \sigma^t,
+\end{equation}
+from $t = 1$ to $t = \varepsilon$ with Heun's method on the time grid of
+Karras et al.~\cite{karras2022edm} ($\rho = 7$), spaced in $\sigma$ rather
+than in $t$. Each Heun step costs two network evaluations.
+
+\paragraph{Rectified Flow.} Rectified Flow~\cite{liu2023flow} joins each image
+and a noise sample $x_1 \sim \mathcal{N}(0, I)$ with a straight line,
+$x_t = (1 - t)\, x_0 + t\, x_1$, and trains a velocity network $v_\theta$ to
+regress the constant velocity of that line:
+\begin{equation}
+  \mathcal{L}_\text{RF} = \mathbb{E}\,\big\| v_\theta(x_t, t) - (x_1 - x_0) \big\|^2,
+  \qquad t \sim \mathcal{U}[\varepsilon, 1].
+\end{equation}
+It is trained for 40 epochs with Adam, batch size 64 and a constant learning
+rate of $10^{-3}$, again keeping an EMA of the weights with rate 0.999.
+Sampling integrates $dx/dt = v_\theta(x, t)$ from $t = 1$ to $t = 0$ with
+uniform Euler steps, one network evaluation each. We also tried Heun steps
+for this teacher, but they did not improve the samples at a low number of
+steps, so we kept Euler. We also tried the cosine learning-rate decay of the
+VE teacher: starting from the same learning rate, it gave practically the
+same samples as the EMA weights, so we kept a constant learning rate. The two teachers were therefore tuned
+separately and not trained with the same budget (60 epochs for VE, 40 for
+RF), which should be kept in mind when comparing them.
+
+The learned paths are not exactly straight, because the lines of different
+image--noise pairs cross and the network can only learn their average. To
+straighten them we apply one round of \emph{reflow}~\cite{liu2023flow}: we
+draw 60\,000 noise samples, map each one to an image by integrating the first
+model (1-RF, EMA weights) with 100 Euler steps, and retrain on these fixed
+pairs, whose straight lines cross much less than those of random pairs. The
+resulting 2-RF starts from the same weights and is trained for 10 epochs with
+a learning rate of $2\cdot10^{-4}$, keeping an EMA of the weights as before.
 
 \subsection{Consistency models}
-\pendiente{}
+\label{sec:cm}
+
+\paragraph{Parameterization.} A consistency model $f_\theta(x_t, t)$ must map
+every point of an ODE trajectory to the same clean image, and it must satisfy
+the boundary condition $f_\theta(x, \varepsilon) = x$. As in the original
+paper, we enforce the boundary condition by construction:
+\begin{equation}
+  f_\theta(x, t) = c_\text{skip}(t)\, x + c_\text{out}(t)\, F_\theta\big(c_\text{in}(t)\, x,\ t\big),
+\end{equation}
+where $F_\theta$ is the U-Net of Section~\ref{sec:data} and
+\begin{equation}
+  c_\text{skip}(t) = \frac{\sigma_\text{d}^2}{(\sigma(t) - \sigma(\varepsilon))^2 + \sigma_\text{d}^2}, \quad
+  c_\text{out}(t) = \frac{\sigma_\text{d}\,(\sigma(t) - \sigma(\varepsilon))}{\sqrt{\sigma(t)^2 + \sigma_\text{d}^2}}, \quad
+  c_\text{in}(t) = \frac{1}{\sqrt{\sigma(t)^2 + \sigma_\text{d}^2}}.
+\end{equation}
+At $t = \varepsilon$, $c_\text{skip} = 1$ and $c_\text{out} = 0$, so the output
+is exactly $x$. $\sigma(t)$ is the noise level of the teacher: the VE
+$\sigma(t)$ above, or $\sigma(t) = t$ for RF. We keep $\sigma_\text{d} = 0.5$,
+the value of the original paper, although the standard deviation of MNIST in
+$[-1, 1]$ is closer to 0.62. The input scaling $c_\text{in}$, taken from
+EDM~\cite{karras2022edm}, was missing in our first version; without it, the
+network receives inputs with a standard deviation of up to 10 with the VE
+teacher.
+
+\paragraph{Consistency distillation.} We follow Algorithm~2 of Song et
+al.~\cite{song2023consistency}. The interval $[\varepsilon, T]$ is
+discretized into $N = 150$ points with the Karras spacing, in $\sigma$ for VE
+and directly in $t$ for RF. At each iteration and for each image $x_0$ of the
+batch, we pick two adjacent points $t_n < t_{n+1}$, noise the image to
+$x_{t_{n+1}}$ with the forward process of the teacher, and take one step of
+the teacher's ODE solver back to $\hat{x}_{t_n}$ (Heun for VE, Euler for RF).
+The two points then lie, approximately, on the same trajectory, and the loss
+asks the model to give the same output at both:
+\begin{equation}
+  \mathcal{L}_\text{CD} = d\big(f_\theta(x_{t_{n+1}}, t_{n+1}),\ f_{\theta^-}(\hat{x}_{t_n}, t_n)\big).
+\end{equation}
+The target network $f_{\theta^-}$ is an EMA of $f_\theta$ with rate
+$\mu = 0.95$ and does not receive gradients. For $d$ we use the pseudo-Huber
+distance $d(a, b) = \sqrt{\|a - b\|^2 + c^2} - c$ with
+$c = 0.00054\sqrt{784} \approx 0.015$~\cite{song2024improved}, which is less
+sensitive to outliers than the squared $\ell_2$ distance; the best results
+of the original paper use LPIPS instead. We train for 40\,000 iterations with
+Adam, a learning rate of $4\cdot10^{-4}$ and batch size 64. Besides the
+target network, we keep a slower EMA of the weights (rate 0.9999), which is
+the one saved and used for sampling.
+
+The value of $N$ is the main departure from the paper, which uses $N = 18$.
+The network only sees the $N$ grid times during training, and with $N = 18$
+our small U-Net did not generalize to the times in between: one-step samples,
+always taken at $t = T$, looked fine, but multistep sampling, which re-noises
+to other times, produced unrecognizable images. With $N = 150$ this problem
+disappeared.
+
+We distill three models: CM-VE from the VE teacher, CM-RF from the 1-RF and
+CM-RF (reflow) from the 2-RF, always from the EMA weights of the teacher.
+\pendiente{confirmar si CM-VE se destiló de mnist\_all\_ve.pth o de mnist\_all\_ve\_ema.pth.}
+To check the effect of the teacher's EMA, we also distilled the 1-RF from its
+raw weights.
+
+\paragraph{Consistency training.} CT (Algorithm~3 of the original paper)
+trains the model without a teacher, and we only implemented it for the VE
+process. The teacher step is replaced by using the same noise for both points
+of the pair: $x_{t_{n+1}} = x_0 + \sigma(t_{n+1})\, z$ and
+$x_{t_n} = x_0 + \sigma(t_n)\, z$. In expectation, both lie on the same
+trajectory of the probability flow ODE. The loss is the same as in CD, but
+$N$ and $\mu$ now follow the curriculum of the paper: at iteration $k$ of $K$,
+\begin{equation}
+  N(k) = \left\lceil \sqrt{\frac{k}{K}\big((s_1 + 1)^2 - s_0^2\big) + s_0^2} - 1 \right\rceil + 1,
+  \qquad \mu(k) = \exp\!\left(\frac{s_0 \ln \mu_0}{N(k)}\right),
+\end{equation}
+with $s_0 = 2$, $s_1 = 150$ and $\mu_0 = 0.95$, so that training starts with a
+coarse grid and refines it. The optimizer, distance and batch size are the
+same as in CD. \pendiente{número de iteraciones usado en CT (por defecto
+20\,000, o fijado con --budget-minutes).}
 
 \subsection{Sampling from consistency models}
-\pendiente{}
+\label{sec:sampling}
+
+To generate an image in one step, we draw $x_T \sim \mathcal{N}(0, \sigma(T)^2 I)$,
+with $\sigma(T) \approx 9.85$ for VE and $\sigma(T) = 1$ for RF, and return
+$f_\theta(x_T, T)$. This costs a single network evaluation.
+
+With more steps we use Algorithm~1 of the original paper. After the first
+prediction $x \leftarrow f_\theta(x_T, T)$, for each time
+$\tau_1 > \dots > \tau_{n-1}$ we add noise back to $x$ and denoise it again in
+one jump, $x \leftarrow f_\theta(x_\tau, \tau)$, so that $n$ steps cost $n$
+evaluations. Every prediction is clamped to $[-1, 1]$ before adding noise.
+The noise has to be added with the forward process of the teacher, because
+$x_\tau$ must look like the inputs the model saw during training:
+\begin{equation}
+  \text{VE: } x_\tau = x + \sqrt{\sigma(\tau)^2 - \sigma(\varepsilon)^2}\; z,
+  \qquad
+  \text{RF: } x_\tau = (1 - \tau)\, x + \tau\, z,
+  \qquad z \sim \mathcal{N}(0, I).
+\end{equation}
+The VE formula is the one of the paper. For RF the current prediction also
+has to be scaled down by $1 - \tau$, since in the RF forward process the
+image fades out as the noise grows.
+
+The times $\tau_i$ have a large effect on the result. The paper chooses them
+with a greedy search that minimizes FID, which we did not do. For VE we take
+the interior points of a Karras grid in $\sigma$ with $n + 1$ points, which
+gives $\tau = 0.16$ ($\sigma \approx 0.53$) for two steps and
+$\tau = 0.60, 0.16, 0.004$ ($\sigma \approx 2.65, 0.53, 0.07$) for four. The
+same rule is not useful for RF: for two steps it gives $\tau = 0.027$, which
+adds so little noise that the second step hardly changes the sample. For RF
+we therefore space the times uniformly from $\tau_\text{max}$ down to
+$\varepsilon$, so that four steps use $\tau = 0.5, 0.33, 0.17$ with
+$\tau_\text{max} = 0.5$. We chose this value by inspecting CM-RF samples
+with two and four steps for $\tau_\text{max}$ between 0.1 and 0.9
+(Figure~\ref{fig:tau_sweep} in the appendix): up to 0.3 the samples are almost the same as with one
+step, and from 0.7 on the model regenerates the digit from heavy noise and
+many digits change or break.
 
 \subsection{Differences from the original paper}
-\pendiente{}
+\label{sec:differences}
+
+Besides the much smaller scale (a $28 \times 28$ grayscale dataset, a network
+of 1.1\,M parameters and 40\,000 iterations with batch size 64), our
+implementation differs from that of Song et al.~\cite{song2023consistency}
+in the following points:
+\begin{itemize}
+  \item \textbf{Teachers.} The paper distills an EDM model~\cite{karras2022edm}.
+        Our diffusion teacher is the VE SDE of Song et al.~\cite{song2021sde},
+        indexed by $t \in [\varepsilon, 1]$ instead of by $\sigma$, so the
+        Karras grid is built in $\sigma$ and mapped back to $t$. The Rectified
+        Flow teacher is not part of the paper.
+  \item \textbf{Discretization.} We use $N = 150$ points instead of 18
+        (Section~\ref{sec:cm}).
+  \item \textbf{Distance.} We use the pseudo-Huber distance of the improved
+        version~\cite{song2024improved} instead of LPIPS or $\ell_2$.
+  \item \textbf{Parameterization for RF.} The coefficients $c_\text{skip}$,
+        $c_\text{out}$ and $c_\text{in}$ come from EDM and assume
+        $x_t = x_0 + \sigma(t)\, z$. In Rectified Flow the image is also
+        scaled by $1 - t$, so with $\sigma(t) = t$ they are a reasonable
+        choice but not the optimal one. We kept them so that both teachers
+        share the same consistency model; deriving coefficients for the RF
+        interpolation is left for future work.
+  \item \textbf{Sampling.} Re-noising follows the RF forward process for the
+        RF models, and the times $\tau_i$ are not optimized for FID
+        (Section~\ref{sec:sampling}).
+  \item \textbf{Consistency training.} We use the curriculum of the original
+        paper with the pseudo-Huber distance, but not the other changes of
+        the improved version, such as removing the EMA from the target
+        network. CT is only implemented for the VE process.
+  \item \textbf{Evaluation.} Instead of FID we use a Fréchet distance on the
+        features of our own MNIST classifier (Section~\ref{sec:evaluation}).
+\end{itemize}
 
 \subsection{Evaluation protocol}
 \label{sec:evaluation}
@@ -212,7 +437,7 @@ measurements were made on the same CPU.
 \subsection{Quality versus number of steps}
 \pendiente{}
 
-\begin{figure}[ht]
+\begin{figure}[!htbp]
   \centering
   \includegraphics[width=0.8\linewidth]{calidad_vs_nfe.png}
   \caption{Sample quality versus number of network function evaluations
@@ -223,7 +448,7 @@ measurements were made on the same CPU.
 \end{figure}
 
 \subsection{Sampling speed}
-\begin{figure}[ht]
+\begin{figure}[!htbp]
   \centering
   \includegraphics[width=0.8\linewidth]{tiempo_vs_n.png}
   \caption{Sampling time versus number of generated samples $N$ (log-log
@@ -233,7 +458,7 @@ measurements were made on the same CPU.
 \pendiente{}
 
 \subsection{Diversity}
-\begin{figure}[ht]
+\begin{figure}[!htbp]
   \centering
   \includegraphics[width=0.9\linewidth]{distribucion_digitos.png}
   \caption{Distribution of the digits predicted by the reference classifier
@@ -244,7 +469,7 @@ measurements were made on the same CPU.
 \pendiente{}
 
 \subsection{Visual inspection}
-\begin{figure}[ht]
+\begin{figure}[!htbp]
   \centering
   \includegraphics[width=0.48\linewidth]{muestras_ve.png}\hfill
   \includegraphics[width=0.48\linewidth]{muestras_rf.png}
@@ -271,7 +496,24 @@ measurements were made on the same CPU.
 \appendix
 \section{Technical appendices}
 \label{sec:appendix}
-\pendiente{}
+
+\paragraph{Re-noising time for RF.} Figure~\ref{fig:tau_sweep} shows the
+sweep used to choose $\tau_\text{max}$ for multistep sampling with the RF
+consistency models (Section~\ref{sec:sampling}). It was generated with
+\texttt{system/tests/cm\_tau\_sweep.py} on CM-RF.
+
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[height=0.78\textheight,keepaspectratio]{cm_tau_sweep_29101858.png}
+  \caption{CM-RF samples for different values of $\tau_\text{max}$. Each
+  row is a value of $\tau_\text{max}$ (0.1, 0.2, 0.3, 0.5, 0.7 and 0.9) and
+  each column a number of steps (2 and 4); the panel at the top left is the
+  one-step result, which does not depend on $\tau_\text{max}$. Every panel
+  shows the same 64 initial noises.}
+  \label{fig:tau_sweep}
+\end{figure}
+
+\pendiente{resto de apéndices.}
 
 % ---------------------------------------------------------------------------
 \section*{Author contributions}
