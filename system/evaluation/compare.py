@@ -122,10 +122,10 @@ class ModelSpec(NamedTuple):
 
 # ============================== CONFIG ==============================
 MODELS: List[ModelSpec] = [
-    ModelSpec("Maestro VE (difusión)", "ve_teacher", "./checkpoints/mnist_all_ve_ema.pth", [5, 10, 50]),
+    ModelSpec("VE teacher (diffusion)", "ve_teacher", "./checkpoints/mnist_all_ve_ema.pth", [5, 10, 50]),
     ModelSpec("CM-VE (CD)", "cm_ve", "./checkpoints/mnist_all_cm_ve.pth", [1, 2, 4]),
-    ModelSpec("CM-VE (CT, sin maestro)", "cm_ve", "./checkpoints/mnist_all_cm_ve_ct.pth", [1, 2, 4]),
-    ModelSpec("Maestro RF", "rf_teacher", "./checkpoints_rf/mnist_all_rf_ema.pth", [1, 10, 50]),
+    ModelSpec("CM-VE (CT, no teacher)", "cm_ve", "./checkpoints/mnist_all_cm_ve_ct.pth", [1, 2, 4]),
+    ModelSpec("RF teacher", "rf_teacher", "./checkpoints_rf/mnist_all_rf_ema.pth", [1, 10, 50]),
     ModelSpec("CM-RF (CD)", "cm_rf", "./checkpoints_rf/mnist_all_cm_rf.pth", [1, 2, 4]),
     ModelSpec("CM-RF (CD, reflow)", "cm_rf", "./checkpoints_rf/mnist_all_cm_rf_reflow.pth", [1, 2, 4]),
 ]
@@ -176,8 +176,8 @@ class Config:
 
     @property
     def label(self) -> str:
-        """Short label used in tables and figures, e.g. 'CM-VE (CD) · 2 pasos'."""
-        return f"{self.model} · {self.steps} paso{'s' if self.steps != 1 else ''}"
+        """Short label used in tables and figures, e.g. 'CM-VE (CD) · 2 steps'."""
+        return f"{self.model} · {self.steps} step{'s' if self.steps != 1 else ''}"
 
     def noise(self, n: int, generator: Optional[torch.Generator] = None) -> torch.Tensor:
         """Draws `n` initial noise images for this configuration's process."""
@@ -307,23 +307,23 @@ def evaluate_samples(
 
     Returns:
         Tuple (metrics dict, per-digit distribution as a list of 10
-        floats). The metrics dict has keys fd_mnist, reconocibles
-        (fraction), entropia (nats) and entropia_pct (% of ln 10).
+        floats). The metrics dict has keys fd_mnist, recognizable
+        (fraction), entropy (nats) and entropy_pct (% of ln 10).
     """
     dist = label_distribution(classifier, samples)
     entropy = label_entropy(dist)
     metrics = {
         "fd_mnist": fd_mnist(classifier, samples, reference),
-        "reconocibles": confident_fraction(classifier, samples, CONFIDENCE_THRESHOLD),
-        "entropia": entropy,
-        "entropia_pct": 100 * entropy / max_label_entropy(),
+        "recognizable": confident_fraction(classifier, samples, CONFIDENCE_THRESHOLD),
+        "entropy": entropy,
+        "entropy_pct": 100 * entropy / max_label_entropy(),
     }
     return metrics, dist.tolist()
 
 
 def save_table(rows: List[dict], results_dir: str) -> None:
     """Writes the results table as CSV and as a Markdown table."""
-    columns = ["modelo", "pasos", "nfe", "fd_mnist", "reconocibles_pct", "entropia", "entropia_pct", "ms_por_imagen", "aceleracion"]
+    columns = ["model", "steps", "nfe", "fd_mnist", "recognizable_pct", "entropy", "entropy_pct", "ms_per_image", "speedup"]
     with open(os.path.join(results_dir, "tabla_resultados.csv"), "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=columns, extrasaction="ignore")
         writer.writeheader()
@@ -333,14 +333,14 @@ def save_table(rows: List[dict], results_dir: str) -> None:
         return "—" if v is None or v == "" else format(v, fmt)
 
     lines = [
-        "| Modelo | Pasos | NFE | FD-MNIST ↓ | Reconocibles ↑ | Entropía ↑ | ms / imagen ↓ | Aceleración ↑ |",
+        "| Model | Steps | NFE | FD-MNIST ↓ | Recognizable ↑ | Entropy ↑ | ms / image ↓ | Speed-up ↑ |",
         "|---|---|---|---|---|---|---|---|",
     ]
     for r in rows:
         lines.append(
-            f"| {r['modelo']} | {cell(r['pasos'], 'd')} | {cell(r['nfe'], 'd')} | {cell(r['fd_mnist'], '.1f')} | "
-            f"{cell(r['reconocibles_pct'], '.1f')} % | {cell(r['entropia'], '.3f')} ({cell(r['entropia_pct'], '.0f')} %) | "
-            f"{cell(r['ms_por_imagen'], '.2f')} | {'×' + format(r['aceleracion'], '.1f') if r.get('aceleracion') else '—'} |"
+            f"| {r['model']} | {cell(r['steps'], 'd')} | {cell(r['nfe'], 'd')} | {cell(r['fd_mnist'], '.1f')} | "
+            f"{cell(r['recognizable_pct'], '.1f')} % | {cell(r['entropy'], '.3f')} ({cell(r['entropy_pct'], '.0f')} %) | "
+            f"{cell(r['ms_per_image'], '.2f')} | {'×' + format(r['speedup'], '.1f') if r.get('speedup') else '—'} |"
         )
     with open(os.path.join(results_dir, "tabla_resultados.md"), "w") as f:
         f.write("\n".join(lines) + "\n")
@@ -375,17 +375,17 @@ def plot_quality_vs_nfe(configs: List[Config], baselines: Dict[str, dict], path:
         nfe = [c.nfe for c in cs]
         style = "--" if cs[0].is_teacher else "-"
         axes[0].plot(nfe, [c.metrics["fd_mnist"] for c in cs], style, color=color, marker="o", label=model)
-        axes[1].plot(nfe, [100 * c.metrics["reconocibles"] for c in cs], style, color=color, marker="o", label=model)
-    for name, ls in (("MNIST real", ":"), ("Ruido puro", "-.")):
+        axes[1].plot(nfe, [100 * c.metrics["recognizable"] for c in cs], style, color=color, marker="o", label=model)
+    for name, ls in (("Real MNIST", ":"), ("Pure noise", "-.")):
         b = baselines[name]
         axes[0].axhline(b["fd_mnist"], color="gray", linestyle=ls, label=name)
-        axes[1].axhline(100 * b["reconocibles"], color="gray", linestyle=ls, label=name)
+        axes[1].axhline(100 * b["recognizable"], color="gray", linestyle=ls, label=name)
     axes[0].set_yscale("log")
-    axes[0].set_ylabel("FD-MNIST (escala log, más bajo = mejor)")
-    axes[1].set_ylabel(f"% reconocibles (confianza ≥ {CONFIDENCE_THRESHOLD})")
+    axes[0].set_ylabel("FD-MNIST (log scale, lower is better)")
+    axes[1].set_ylabel(f"% recognizable (confidence ≥ {CONFIDENCE_THRESHOLD})")
     for ax in axes:
         ax.set_xscale("log")
-        ax.set_xlabel("Evaluaciones de red por imagen (NFE, escala log)")
+        ax.set_xlabel("Network evaluations per image (NFE, log scale)")
         ax.grid(True, which="both", alpha=0.3)
     axes[1].legend(fontsize=8, loc="best")
     fig.tight_layout()
@@ -414,8 +414,8 @@ def plot_time_vs_n(configs: List[Config], path: str) -> None:
                 label=f"{c.label} (NFE {c.nfe})")
     ax.set_xscale("log")
     ax.set_yscale("log")
-    ax.set_xlabel("Número de imágenes generadas N")
-    ax.set_ylabel("Tiempo (s)")
+    ax.set_xlabel("Number of generated images N")
+    ax.set_ylabel("Time (s)")
     ax.grid(True, which="both", alpha=0.3)
     ax.legend(fontsize=7, ncol=1, loc="upper left", bbox_to_anchor=(1.01, 1.0))
     fig.tight_layout()
@@ -438,11 +438,11 @@ def plot_distribution(labels: List[str], distributions: List[List[float]], path:
     ax.set_xticks(range(10))
     ax.set_yticks(range(len(labels)))
     ax.set_yticklabels(labels, fontsize=8)
-    ax.set_xlabel("Dígito predicho por el clasificador")
+    ax.set_xlabel("Digit predicted by the classifier")
     for i in range(data.shape[0]):
         for j in range(10):
             ax.text(j, i, f"{data[i, j]:.0f}", ha="center", va="center", fontsize=7, color="white" if data[i, j] > 0.5 * vmax else "black")
-    fig.colorbar(im, ax=ax, label="% de las muestras (ideal ≈ 10 %)")
+    fig.colorbar(im, ax=ax, label="% of samples (ideal ≈ 10 %)")
     fig.tight_layout()
     fig.savefig(path, dpi=150)
     plt.close(fig)
@@ -485,12 +485,12 @@ def main() -> None:
 
     baselines = {}
     for name, samples in (
-        ("MNIST real", load_real_images(train=False, n=args.n_eval)),
-        ("Ruido puro", torch.randn(args.n_eval, *IMAGE_SHAPE).clamp(-1.0, 1.0)),
+        ("Real MNIST", load_real_images(train=False, n=args.n_eval)),
+        ("Pure noise", torch.randn(args.n_eval, *IMAGE_SHAPE).clamp(-1.0, 1.0)),
     ):
         metrics, dist = evaluate_samples(samples, classifier, reference)
         baselines[name] = {**metrics, "distribution": dist}
-        logger.info("%-28s FD=%.1f | reconocibles=%.1f%% | entropía=%.3f", name, metrics["fd_mnist"], 100 * metrics["reconocibles"], metrics["entropia"])
+        logger.info("%-28s FD=%.1f | recognizable=%.1f%% | entropy=%.3f", name, metrics["fd_mnist"], 100 * metrics["recognizable"], metrics["entropy"])
 
     configs: List[Config] = []
     for spec in MODELS:
@@ -510,8 +510,8 @@ def main() -> None:
         c.metrics, c.distribution = evaluate_samples(samples, classifier, reference)
         grid_columns[c.family].append((c.label, samples[:GRID_IMAGES].cpu()))
         logger.info(
-            "%-36s NFE=%4d | FD=%.1f | reconocibles=%.1f%% | entropía=%.3f | %.1f s",
-            c.label, c.nfe, c.metrics["fd_mnist"], 100 * c.metrics["reconocibles"], c.metrics["entropia"], time.time() - t0,
+            "%-36s NFE=%4d | FD=%.1f | recognizable=%.1f%% | entropy=%.3f | %.1f s",
+            c.label, c.nfe, c.metrics["fd_mnist"], 100 * c.metrics["recognizable"], c.metrics["entropy"], time.time() - t0,
         )
 
     if not args.no_timing:
@@ -528,25 +528,25 @@ def main() -> None:
 
     rows = []
     for name, b in baselines.items():
-        rows.append({"modelo": name, "pasos": None, "nfe": None, "fd_mnist": b["fd_mnist"], "reconocibles_pct": 100 * b["reconocibles"],
-                     "entropia": b["entropia"], "entropia_pct": b["entropia_pct"], "ms_por_imagen": None, "aceleracion": None})
+        rows.append({"model": name, "steps": None, "nfe": None, "fd_mnist": b["fd_mnist"], "recognizable_pct": 100 * b["recognizable"],
+                     "entropy": b["entropy"], "entropy_pct": b["entropy_pct"], "ms_per_image": None, "speedup": None})
     for c in configs:
         ms = 1000 * c.timing[n_max] / n_max if c.timing else None
         ref = slowest_teacher.get(c.family)
         speedup = (ref.timing[n_max] / c.timing[n_max]) if (ref and c.timing) else None
-        rows.append({"modelo": c.model, "pasos": c.steps, "nfe": c.nfe, "fd_mnist": c.metrics["fd_mnist"],
-                     "reconocibles_pct": 100 * c.metrics["reconocibles"], "entropia": c.metrics["entropia"],
-                     "entropia_pct": c.metrics["entropia_pct"], "ms_por_imagen": ms, "aceleracion": speedup})
+        rows.append({"model": c.model, "steps": c.steps, "nfe": c.nfe, "fd_mnist": c.metrics["fd_mnist"],
+                     "recognizable_pct": 100 * c.metrics["recognizable"], "entropy": c.metrics["entropy"],
+                     "entropy_pct": c.metrics["entropy_pct"], "ms_per_image": ms, "speedup": speedup})
 
     save_table(rows, args.results_dir)
     with open(os.path.join(args.results_dir, "resultados.json"), "w") as f:
         json.dump({
             "config": {"n_eval": args.n_eval, "n_reference": N_REFERENCE, "timing_sizes": timing_sizes,
                        "timing_repeats": timing_repeats, "confidence_threshold": CONFIDENCE_THRESHOLD, "seed": SEED,
-                       "device": str(device), "aceleracion_respecto_a": {k: v.label for k, v in slowest_teacher.items()}},
+                       "device": str(device), "speedup_reference": {k: v.label for k, v in slowest_teacher.items()}},
             "baselines": baselines,
-            "configs": [{"modelo": c.model, "pasos": c.steps, "nfe": c.nfe, "familia": c.family, **c.metrics,
-                         "distribucion": c.distribution, "tiempos": {str(n): t for n, t in c.timing.items()}} for c in configs],
+            "configs": [{"model": c.model, "steps": c.steps, "nfe": c.nfe, "family": c.family, **c.metrics,
+                         "distribution": c.distribution, "timings": {str(n): t for n, t in c.timing.items()}} for c in configs],
         }, f, indent=2, ensure_ascii=False)
 
     plot_quality_vs_nfe(configs, baselines, os.path.join(args.results_dir, "calidad_vs_nfe.png"))
