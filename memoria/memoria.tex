@@ -1,0 +1,283 @@
+\documentclass{article}
+
+\usepackage{nips15submit_e,times}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{url}
+\usepackage[hidelinks]{hyperref}
+
+% Las figuras se leen directamente de results/
+\graphicspath{{../results/}}
+
+% Marca de texto pendiente.
+\newcommand{\pendiente}[1]{\textcolor{red}{[PENDIENTE\ifx\relax#1\relax\else: #1\fi]}}
+
+% Muestra los nombres de los autores (sin esto, la plantilla los oculta
+% como en un envío anónimo y añade números de línea).
+\nipsfinalcopy
+
+\title{Consistency Models}
+
+\author{
+Ibon De Mingo Arroyo \\
+Universidad Autónoma de Madrid \\
+\And
+Eloísa Denia García \\
+Universidad Autónoma de Madrid \\
+\And
+Matin Esmaeilzadeh \\
+Universidad Autónoma de Madrid \\
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+\pendiente{}
+\end{abstract}
+
+% ---------------------------------------------------------------------------
+\section{Introduction}
+\label{sec:introduction}
+
+Diffusion models~\cite{ho2020ddpm,song2021sde} are currently one of the most
+successful families of generative models for images. They gradually destroy
+the data by adding noise and train a neural network to reverse this process.
+The price of this quality is the cost of sampling: generating a single image
+requires starting from pure noise and removing it step by step, evaluating
+the network at every step. Ho et al.~\cite{ho2020ddpm} use 1000 steps per
+sample. Formulating the process as an ordinary differential equation, the
+\emph{probability flow ODE}~\cite{song2021sde}, greatly reduces this number,
+but tens of network evaluations per image are still needed.
+
+To address this problem, Song et al.~\cite{song2023consistency} introduced
+\emph{Consistency Models}. A consistency model learns to map any point on a
+trajectory of this ODE directly to its origin, that is, to the clean image at
+the end of the trajectory. As a result, it can generate a sample with a
+single network evaluation. When more compute is available, it can also chain
+several steps, adding noise back and removing it again, to improve quality.
+The paper proposes two ways to train them: \emph{consistency distillation}
+(CD), which distills a pre-trained diffusion model that acts as a teacher, and
+\emph{consistency training} (CT), which trains them from scratch, without a
+teacher.
+
+In this project we reproduce this method at a small scale on
+MNIST~\cite{lecun1998mnist} and measure what is gained and what is lost when
+the number of sampling steps is reduced. MNIST was chosen because it is light
+enough to train several complete models within the project deadline and
+without a GPU.
+
+With respect to the initial proposal, the project has been extended in one
+direction: besides the diffusion teacher, we trained a second teacher based
+on Rectified Flow~\cite{liu2023flow}, and also distilled it into a
+consistency model. This allows us to study how the choice of teacher affects
+the resulting consistency model.
+
+% ---------------------------------------------------------------------------
+\section{Objectives}
+\label{sec:objectives}
+
+The main objectives set in the project proposal are:
+\begin{enumerate}
+  \item Train a diffusion model to serve as the teacher of the consistency
+        model.
+  \item Distill the knowledge learned by the teacher into a faster
+        consistency model.
+  \item Compare the consistency model with the diffusion model in terms of
+        sampling speed and sample quality.
+  \item Analyze the results: the speed-up obtained, the quality of the
+        samples generated with more or fewer steps and their diversity, as
+        well as other technical issues of interest and the limitations
+        found during the project.
+\end{enumerate}
+Once these objectives were met, the proposal considered three extensions, in
+this order: training the model with consistency training and comparing it
+with the previous ones; adapting the architecture to color images with
+CIFAR-10~\cite{krizhevsky2009cifar}; and developing a class-conditional
+consistency model able to generate a given digit.
+
+All four main objectives have been met.
+\pendiente{decidir qué extensiones se incluyen en la entrega.}
+
+% ---------------------------------------------------------------------------
+\section{Related work and state of the art}
+\label{sec:related}
+
+\paragraph{Diffusion models.} Diffusion models were introduced by
+Sohl-Dickstein et al.~\cite{sohldickstein2015} and became competitive with
+DDPM~\cite{ho2020ddpm} and score-based models~\cite{song2019ncsn}. Song et
+al.~\cite{song2021sde} unified both views as stochastic differential
+equations and showed that every diffusion process has an associated
+deterministic probability flow ODE with the same marginal distributions.
+Karras et al.~\cite{karras2022edm} later reorganized their design space
+(noise schedule, network preconditioning and ODE solver); their choices are
+the basis of consistency models and of our implementation.
+
+\paragraph{Fast sampling.} Several lines of work reduce the number of network
+evaluations. Training-free methods use better solvers for the probability
+flow ODE, such as DDIM~\cite{song2021ddim}, the second-order Heun sampler of
+EDM~\cite{karras2022edm} or DPM-Solver~\cite{lu2022dpmsolver}, which reaches
+good quality in around 10 steps. Distillation methods train a student to
+imitate several teacher steps at once: progressive
+distillation~\cite{salimans2022progressive} halves the number of steps in
+each round, down to 4 steps, at the cost of several rounds of training.
+Finally, flow matching~\cite{lipman2023flow} and Rectified
+Flow~\cite{liu2023flow} learn a velocity field along nearly straight paths
+between noise and data, which can be integrated with fewer steps; Rectified
+Flow can be straightened further with \emph{reflow}.
+
+\paragraph{Consistency models.} Consistency
+models~\cite{song2023consistency} learn a direct map from any point of an ODE
+trajectory to its origin. They allow one-step generation and, unlike
+progressive distillation, are trained in a single stage, either by
+distillation (CD) or from scratch (CT). Song and
+Dhariwal~\cite{song2024improved} substantially improved CT with a
+pseudo-Huber loss and a new discretization curriculum. Later works apply the
+idea to latent text-to-image models~\cite{luo2023lcm}, learn jumps between any
+two times of the trajectory~\cite{kim2024ctm}, and move to continuous time to
+scale consistency models to 1.5\,B parameters~\cite{lu2025scm}. All of them
+rely on large GPU budgets; our goal is instead a small reproduction on CPU,
+in which we also compare a diffusion model and a Rectified Flow as teachers.
+
+% ---------------------------------------------------------------------------
+\section{Methodology}
+\label{sec:methodology}
+\pendiente{}
+
+\subsection{Data and architecture}
+\pendiente{}
+
+\subsection{Teacher models}
+\pendiente{}
+
+\subsection{Consistency models}
+\pendiente{}
+
+\subsection{Sampling from consistency models}
+\pendiente{}
+
+\subsection{Differences from the original paper}
+\pendiente{}
+
+\subsection{Evaluation protocol}
+\label{sec:evaluation}
+
+\paragraph{Reference classifier.} Metrics based on Inception, such as FID,
+are designed for natural images, so we trained a small CNN on MNIST instead:
+two $3\times3$ convolutional blocks (32 and 64 channels, ReLU and $2\times2$
+max-pooling), a hidden dense layer of 128 units and a 10-way output, with
+421\,642 parameters in total. It was trained for 10 epochs with Adam
+(learning rate $10^{-3}$, batch size 128) and reaches 99.00\% accuracy on the
+MNIST test set.
+
+\paragraph{Quality and diversity metrics.} Our main quality metric is
+FD-MNIST: the Fréchet distance between Gaussians fitted to the
+128-dimensional penultimate-layer features of generated and real images. It
+is computed exactly like FID~\cite{heusel2017fid}, with our classifier in
+place of Inception and 10\,000 MNIST training images as the real reference.
+We also report the fraction of \emph{recognizable} samples, those classified
+with a top-1 probability of at least 0.9, but only as a secondary metric: the
+classifier is over-confident outside the data distribution and assigns a
+digit with such confidence to 61\% of pure-noise images. Diversity is
+measured by the entropy of the distribution of predicted digits, whose
+maximum, $\ln 10 \approx 2.30$, means that all digits are equally frequent.
+Since the Fréchet distance depends on the number of samples, every
+configuration (model and number of steps) is evaluated on the same
+$N_\text{eval} = 2000$ samples, generated from the same initial noise within
+each family (VE or RF). As references, we also evaluate 2000 real test
+images, which give the best achievable values, and 2000 pure-noise images.
+
+\paragraph{Timing.} We measure the wall-clock time needed to generate
+$N \in \{1, 10, 100, 500\}$ samples, averaged over 3 repetitions after a
+warm-up run, and report the time per image at $N = 500$. The speed-up of each
+configuration is computed with respect to the teacher of its family with the
+most steps. We also report the number of network function evaluations (NFE)
+per sample, which, unlike time, does not depend on the hardware. All
+measurements were made on the same CPU.
+
+% ---------------------------------------------------------------------------
+\section{Results and discussion}
+\label{sec:results}
+% Depende de los checkpoints finales. Redactar con los números actuales
+% y revisar cuando se vuelva a ejecutar compare.py.
+
+\pendiente{}
+
+\subsection{Quality versus number of steps}
+\pendiente{}
+
+\begin{figure}[ht]
+  \centering
+  \includegraphics[width=0.8\linewidth]{calidad_vs_nfe.png}
+  \caption{Sample quality versus number of network function evaluations
+  (NFE): FD-MNIST (left, lower is better) and percentage of recognizable
+  samples (right). Dashed lines are teachers and solid lines consistency
+  models; gray lines mark the real-MNIST and pure-noise references.}
+  \label{fig:quality_nfe}
+\end{figure}
+
+\subsection{Sampling speed}
+\begin{figure}[ht]
+  \centering
+  \includegraphics[width=0.8\linewidth]{tiempo_vs_n.png}
+  \caption{Sampling time versus number of generated samples $N$ (log-log
+  scale). Dashed lines are teachers and solid lines consistency models.}
+  \label{fig:time_n}
+\end{figure}
+\pendiente{}
+
+\subsection{Diversity}
+\begin{figure}[ht]
+  \centering
+  \includegraphics[width=0.9\linewidth]{distribucion_digitos.png}
+  \caption{Distribution of the digits predicted by the reference classifier
+  (percentage of samples per digit; a perfectly balanced generator gives
+  10\% each).}
+  \label{fig:distribution}
+\end{figure}
+\pendiente{}
+
+\subsection{Visual inspection}
+\begin{figure}[ht]
+  \centering
+  \includegraphics[width=0.48\linewidth]{muestras_ve.png}\hfill
+  \includegraphics[width=0.48\linewidth]{muestras_rf.png}
+  \caption{Samples from the VE family (left) and the RF family (right). Each
+  column is a configuration and each row starts from the same initial
+  noise.}
+  \label{fig:samples}
+\end{figure}
+
+\subsection{Discussion and limitations}
+\pendiente{}
+
+% ---------------------------------------------------------------------------
+\section{Conclusions and future work}
+\label{sec:conclusions}
+\pendiente{}
+
+{\small
+\bibliographystyle{unsrt}
+\bibliography{referencias}
+}
+
+% ---------------------------------------------------------------------------
+\appendix
+\section{Technical appendices}
+\label{sec:appendix}
+\pendiente{}
+
+% ---------------------------------------------------------------------------
+\section*{Author contributions}
+\pendiente{}
+
+\section*{Declaration regarding the use of AI tools}
+\pendiente{}
+
+\end{document}
