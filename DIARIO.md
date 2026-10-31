@@ -4,6 +4,27 @@ Registro breve de lo que se ha hecho, entrada más reciente arriba.
 
 ---
 
+## 2026-10-31 — Consistency training mejorado y reevaluación completa
+
+- Nuevo `consistency/ict_loss.py` + `training/consistency_training_improved.py`:
+  consistency training con las técnicas de Song & Dhariwal (2024) (sin target EMA,
+  curriculum exponencial de N, ruido lognormal y pérdida ponderada por
+  1/(σ_{n+1}-σ_n)). Dos fases: 20 000 iteraciones (N 11→161) y 32 289 más desde
+  esos pesos (batch 128, N 161→641). Resultado: mejor que CD a 2 y 4 pasos
+  (FD 274 y 179 frente a 388 y 321) con unas 2 veces más imágenes de entrenamiento.
+- `training/consistency_training.py`: guardado atómico, `_resume` final, aviso para
+  no pisar un run, LR correcto al reanudar y guardado con Ctrl+C.
+- `evaluation/compare.py` compara cada CM con el teacher del que se destiló (VE
+  crudo, 1-RF, 2-RF) e incluye CT, iCT (dos fases) y las figuras de 3 filas de la
+  memoria. Nuevos `reuse_timing.py` (tiempos de referencia por arquitectura) y
+  `seed_variance.py` (variabilidad por muestreo). Todo en `results/` (ver su README).
+- Hallazgo: relativo a su propio teacher, CM-VE es mejor copia (1,6× el FD del VE
+  crudo a 4 pasos) que CM-RF (3,4× el del 1-RF); CM-RF gana en absoluto porque su
+  teacher es mucho mejor (FD 78,5 frente a 206).
+- `memoria/memoria_final.tex` actualizada a esta ejecución (cuerpo en 8 páginas).
+
+---
+
 ## 2026-09-27 — Maestro Rectified Flow implementado y entrenado
 
 - Implementadas las tareas 1, 2, 7, 8 y 17 de `TODO.md`, siguiendo

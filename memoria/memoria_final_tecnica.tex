@@ -1,0 +1,952 @@
+\documentclass{article}
+
+\usepackage{nips15submit_e,times}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+% Cada figura se queda dentro de su sección (no se va detrás de la bibliografía).
+\usepackage[section]{placeins}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{url}
+\usepackage[hidelinks]{hyperref}
+
+% Todas las figuras se leen directamente de results/ (generadas por
+% system/evaluation/compare.py) y figures/ (ablaciones de RF).
+\graphicspath{{../results/}{../figures/}{./}}
+
+% Marca de texto pendiente.
+\newcommand{\pendiente}[1]{\textcolor{red}{[PENDIENTE\ifx\relax#1\relax\else: #1\fi]}}
+
+% Muestra los nombres de los autores (sin esto, la plantilla los oculta
+% como en un envío anónimo y añade números de línea).
+\nipsfinalcopy
+
+\title{Consistency Models}
+
+\author{
+Ibon De Mingo Arroyo \\
+Universidad Autónoma de Madrid \\
+\And
+Eloísa Denia García \\
+Universidad Autónoma de Madrid \\
+\And
+Matin Esmaeilzadeh \\
+Universidad Autónoma de Madrid \\
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Diffusion models generate high-quality images but need tens of network
+evaluations per sample. Consistency models~\cite{song2023consistency} learn to
+map any point of a diffusion trajectory directly to its clean image, which
+allows one-step generation. We reproduce them at a small scale on MNIST: we
+train a Variance Exploding diffusion teacher and a Rectified Flow teacher,
+distill each one into a consistency model, and also train a consistency model
+from scratch (consistency training). We compare all models in sample quality,
+diversity and sampling time, using a Fréchet distance computed on the
+features of our own MNIST classifier. The distilled models generate a sample
+with one network evaluation, about 50 to 95 times faster than the teachers
+with 50 steps, but at the price of a Fréchet distance 4 to 5 times higher than
+the best teacher of their family; with four steps it falls to 2.7 and 3.4 times. The Rectified
+Flow teacher gives the better and more diverse consistency model in absolute
+terms. Consistency training with the original recipe is far worse, but an
+improved version, without teacher and with twice the training images of
+distillation, beats the distillation of the diffusion teacher.
+\end{abstract}
+
+% ---------------------------------------------------------------------------
+\section{Introduction}
+\label{sec:introduction}
+
+Diffusion models~\cite{ho2020ddpm,song2021sde} are currently one of the most
+successful families of generative models for images. They gradually destroy
+the data by adding noise and train a neural network to reverse this process.
+The price of this quality is the cost of sampling: generating a single image
+requires starting from pure noise and removing it step by step, evaluating
+the network at every step. Ho et al.~\cite{ho2020ddpm} use 1000 steps per
+sample. Formulating the process as an ordinary differential equation, the
+\emph{probability flow ODE}~\cite{song2021sde}, greatly reduces this number,
+but tens of network evaluations per image are still needed.
+
+To address this problem, Song et al.~\cite{song2023consistency} introduced
+\emph{Consistency Models}. A consistency model learns to map any point on a
+trajectory of this ODE directly to its origin, that is, to the clean image at
+the end of the trajectory. As a result, it can generate a sample with a
+single network evaluation. When more compute is available, it can also chain
+several steps, adding noise back and removing it again, to improve quality.
+The paper proposes two ways to train them: \emph{consistency distillation}
+(CD), which distills a pre-trained diffusion model that acts as a teacher, and
+\emph{consistency training} (CT), which trains them from scratch, without a
+teacher.
+
+In this project we reproduce this method at a small scale on
+MNIST~\cite{lecun1998mnist} and measure what is gained and what is lost when
+the number of sampling steps is reduced; MNIST is light enough to train
+several complete models without a GPU. Beyond the initial proposal, we also
+trained a Rectified Flow~\cite{liu2023flow} teacher and distilled it too, to
+study how the choice of teacher affects the consistency model.
+
+% ---------------------------------------------------------------------------
+\section{Objectives}
+\label{sec:objectives}
+
+The main objectives set in the project proposal are:
+\begin{enumerate}
+  \item Train a diffusion model to serve as the teacher of the consistency
+        model.
+  \item Distill the knowledge learned by the teacher into a faster
+        consistency model.
+  \item Compare the consistency model with the diffusion model in terms of
+        sampling speed and sample quality.
+  \item Analyze the results: the speed-up obtained, the quality of the
+        samples generated with more or fewer steps and their diversity, as
+        well as other technical issues of interest and the limitations
+        found during the project.
+\end{enumerate}
+Once these objectives were met, the proposal considered three extensions, in
+this order: consistency training and its comparison with the previous models;
+adapting the architecture to color images with
+CIFAR-10~\cite{krizhevsky2009cifar}; and a class-conditional consistency
+model. Their status is given in Section~\ref{sec:conclusions}.
+
+% ---------------------------------------------------------------------------
+\section{Related work and state of the art}
+\label{sec:related}
+
+\paragraph{Diffusion models.} Diffusion
+models~\cite{sohldickstein2015,ho2020ddpm,song2019ncsn} were unified by Song
+et al.~\cite{song2021sde} as stochastic differential equations, each with a
+deterministic probability flow ODE with the same marginals. Karras et
+al.~\cite{karras2022edm} reorganized their design space (noise schedule,
+network preconditioning, ODE solver); their choices are the basis of
+consistency models and of our implementation.
+
+\paragraph{Fast sampling.} Training-free methods use better ODE solvers, such
+as DDIM~\cite{song2021ddim}, the Heun sampler of EDM~\cite{karras2022edm} or
+DPM-Solver~\cite{lu2022dpmsolver}, which reaches good quality in around 10
+steps. Progressive distillation~\cite{salimans2022progressive} halves the
+number of steps in each round, down to 4, at the cost of several training
+rounds. Flow matching~\cite{lipman2023flow} and Rectified
+Flow~\cite{liu2023flow} learn a velocity field along nearly straight paths,
+which can be integrated with fewer steps and straightened further with
+\emph{reflow}.
+
+\paragraph{Consistency models.} Consistency
+models~\cite{song2023consistency} learn a direct map from any point of an ODE
+trajectory to its origin, allow one-step generation and are trained in a
+single stage, by distillation (CD) or from scratch (CT). Song and
+Dhariwal~\cite{song2024improved} substantially improved CT (pseudo-Huber
+loss, new curriculum); later works extend the idea to latent text-to-image
+models~\cite{luo2023lcm}, to jumps between any two times~\cite{kim2024ctm}
+and to continuous time at 1.5\,B parameters~\cite{lu2025scm}. All of them rely
+on large GPU budgets; ours is a small reproduction on CPU that also compares a
+diffusion and a Rectified Flow teacher.
+
+% ---------------------------------------------------------------------------
+\section{Methodology}
+\label{sec:methodology}
+
+We train two teachers on MNIST, a Variance Exploding (VE) diffusion model and
+a Rectified Flow (RF), and distill each of them into a consistency model. Two
+more consistency models are trained from scratch, without a teacher: with CT
+and with an improved version of it (iCT). All models use the
+same network, so that differences between them come from how they are
+trained and not from their capacity. Everything is implemented in PyTorch;
+the code is in the project repository.
+
+\subsection{Data and architecture}
+\label{sec:data}
+
+We use the 60\,000 training images of MNIST, $28\times28$ in grayscale, with
+pixel values scaled to $[-1, 1]$ and no data augmentation. The 10\,000 test
+images are only used in the evaluation (Section~\ref{sec:evaluation}).
+
+Every model is built on the same small U-Net~\cite{ronneberger2015unet} with
+1\,115\,425 parameters (four convolutional levels with 32 to 256 channels,
+skip connections, group normalization, SiLU activations and a Gaussian random
+Fourier embedding of the time $t$; details in Appendix~\ref{sec:app_unet}).
+The three uses of it differ only in how its output is read: the score network
+divides it by the noise level $\sigma(t)$, the velocity network takes it as it
+is, and the consistency models wrap it as described in Section~\ref{sec:cm}.
+
+\subsection{Teacher models}
+\label{sec:teachers}
+
+In both teachers the data lie at $t = 0$ and the noise at $t = T = 1$, and the
+training times are drawn from $[\varepsilon, 1]$ with $\varepsilon = 10^{-5}$.
+Using the same time convention lets the consistency models be trained and
+sampled with the same code for either teacher.
+
+\paragraph{VE diffusion.} The forward process only adds Gaussian noise,
+$x_t = x_0 + \sigma(t)\,z$ with $z \sim \mathcal{N}(0, I)$ and
+\begin{equation}
+  \sigma(t) = \sqrt{\frac{\sigma^{2t} - 1}{2 \ln \sigma}}, \qquad \sigma = 25,
+\end{equation}
+which gives a noise standard deviation of about 9.85 at $t = 1$. The score
+network $s_\theta$ is trained with denoising score
+matching~\cite{song2021sde}, minimizing
+$\mathbb{E}\,\|\sigma(t)\, s_\theta(x_t, t) + z\|^2$ with $t$ uniform in
+$[\varepsilon, 1]$. We evaluate two VE teachers. The better one is trained for
+60 epochs with Adam, batch size 64 and a learning rate of $10^{-3}$ with cosine
+decay to zero, and we keep an exponential moving average (EMA) of the weights
+with rate 0.999. The other, \emph{raw} teacher, which we trained first and from
+which CM-VE was distilled, uses 40 epochs, a constant learning rate and no
+EMA. Samples are obtained by integrating the probability flow ODE
+\begin{equation}
+  \frac{dx}{dt} = -\frac{1}{2}\, g(t)^2\, s_\theta(x, t), \qquad g(t) = \sigma^t,
+\end{equation}
+from $t = 1$ to $t = \varepsilon$ with Heun's method on the time grid of
+Karras et al.~\cite{karras2022edm} ($\rho = 7$), spaced in $\sigma$ rather
+than in $t$. Each Heun step costs two network evaluations.
+
+\paragraph{Rectified Flow.} Rectified Flow~\cite{liu2023flow} joins each image
+and a noise sample $x_1 \sim \mathcal{N}(0, I)$ with a straight line,
+$x_t = (1 - t)\, x_0 + t\, x_1$, and trains a velocity network $v_\theta$ to
+regress the constant velocity of that line:
+\begin{equation}
+  \mathcal{L}_\text{RF} = \mathbb{E}\,\big\| v_\theta(x_t, t) - (x_1 - x_0) \big\|^2,
+  \qquad t \sim \mathcal{U}[\varepsilon, 1].
+\end{equation}
+It is trained for 40 epochs with Adam, batch size 64 and a constant learning
+rate of $10^{-3}$, again keeping an EMA of the weights with rate 0.999.
+Sampling integrates $dx/dt = v_\theta(x, t)$ from $t = 1$ to $t = 0$ with
+uniform Euler steps, one network evaluation each; Heun steps and the cosine
+decay of the VE teacher did not improve the samples. The two teachers were
+tuned separately and not trained with the same budget (60 epochs for VE, 40
+for RF), which should be kept in mind when comparing them.
+
+The learned paths are not exactly straight, because the lines of different
+image--noise pairs cross and the network can only learn their average. To
+straighten them we apply one round of \emph{reflow}~\cite{liu2023flow}: we
+map 60\,000 noise samples to images by integrating the first model (1-RF, EMA
+weights) with 100 Euler steps, and retrain on these fixed pairs, whose
+straight lines cross much less than those of random pairs. The resulting 2-RF
+starts from the (EMA) 1-RF weights and is trained for 10 epochs with a learning
+rate of $2\cdot10^{-4}$.
+
+\subsection{Consistency models}
+\label{sec:cm}
+
+\paragraph{Parameterization.} A consistency model $f_\theta(x_t, t)$ must map
+every point of an ODE trajectory to the same clean image, and it must satisfy
+the boundary condition $f_\theta(x, \varepsilon) = x$. As in the original
+paper, we enforce it by construction:
+\begin{equation}
+  f_\theta(x, t) = c_\text{skip}(t)\, x + c_\text{out}(t)\, F_\theta\big(c_\text{in}(t)\, x,\ t\big),
+\end{equation}
+where $F_\theta$ is the U-Net of Section~\ref{sec:data}, $\sigma(t)$ is the
+noise level of the teacher (the VE $\sigma(t)$ above, or $\sigma(t) = t$ for
+RF), $\Delta(t) = \sigma(t) - \sigma(\varepsilon)$ and
+\begin{equation}
+  c_\text{skip}(t) = \frac{\sigma_\text{d}^2}{\Delta(t)^2 + \sigma_\text{d}^2}, \quad
+  c_\text{out}(t) = \frac{\sigma_\text{d}\,\Delta(t)}{\sqrt{\sigma(t)^2 + \sigma_\text{d}^2}}, \quad
+  c_\text{in}(t) = \frac{1}{\sqrt{\sigma(t)^2 + \sigma_\text{d}^2}}.
+\end{equation}
+At $t = \varepsilon$, $c_\text{skip} = 1$ and $c_\text{out} = 0$, so the output
+is exactly $x$. We keep $\sigma_\text{d} = 0.5$, the value of the original
+paper, although the standard deviation of MNIST in $[-1, 1]$ is closer to
+0.62. The input scaling $c_\text{in}$ comes from EDM~\cite{karras2022edm};
+without it the network receives inputs with a standard deviation of up to 10
+with the VE teacher.
+
+\paragraph{Consistency distillation.} We follow Algorithm~2 of Song et
+al.~\cite{song2023consistency}. The interval $[\varepsilon, T]$ is
+discretized into $N = 150$ points with the Karras spacing, in $\sigma$ for VE
+and directly in $t$ for RF. At each iteration and for each image $x_0$ of the
+batch, we pick two adjacent points $t_n < t_{n+1}$, noise the image to
+$x_{t_{n+1}}$ with the forward process of the teacher, and take one step of
+the teacher's ODE solver back to $\hat{x}_{t_n}$ (Heun for VE, Euler for RF).
+The two points then lie, approximately, on the same trajectory, and the loss
+asks the model to give the same output at both:
+\begin{equation}
+  \mathcal{L}_\text{CD} = d\big(f_\theta(x_{t_{n+1}}, t_{n+1}),\ f_{\theta^-}(\hat{x}_{t_n}, t_n)\big).
+\end{equation}
+The target network $f_{\theta^-}$ is an EMA of $f_\theta$ with rate
+$\mu = 0.95$ and does not receive gradients. For $d$ we use the pseudo-Huber
+distance $d(a, b) = \sqrt{\|a - b\|^2 + c^2} - c$ with
+$c = 0.00054\sqrt{784} \approx 0.015$~\cite{song2024improved}. We train for
+40\,000 iterations with Adam, a constant learning rate of $4\cdot10^{-4}$ and
+batch size 64. Besides the target network, we keep a slower EMA of the weights
+(rate 0.9999), which is the one saved and used for sampling.
+
+The value of $N$ is the main departure from the paper, which uses $N = 18$.
+The network only sees the $N$ grid times during training, and with $N = 18$
+our small U-Net did not generalize to the times in between: one-step samples,
+always taken at $t = T$, looked fine, but multistep sampling, which re-noises
+to other times, produced unrecognizable images. With $N = 150$ this problem
+disappeared.
+
+We distill three models: CM-RF from the EMA weights of the 1-RF, CM-RF
+(reflow) from the EMA weights of the 2-RF, and CM-VE from the raw VE teacher.
+\emph{Note that CM-VE was distilled from the raw VE teacher (40 epochs, constant
+learning rate, no EMA) and not from the better EMA one}; Section~\ref{sec:results}
+reports both teachers, and compares CM-VE with the one it was distilled from
+(recipes in Appendix~\ref{sec:app_recipes}).
+
+\paragraph{Consistency training.} CT (Algorithm~3 of the original paper)
+trains the model without a teacher, and we only implemented it for the VE
+process. The teacher step is replaced by using the same noise for both points
+of the pair: $x_{t_{n+1}} = x_0 + \sigma(t_{n+1})\, z$ and
+$x_{t_n} = x_0 + \sigma(t_n)\, z$, which in expectation lie on the same
+trajectory of the probability flow ODE. The loss and the distance are those of
+CD, but $N$ and $\mu$ follow the curriculum of the paper: both grow during
+training, from $N = 2$ and $\mu = 0.95$ to $N = 151$ and $\mu \approx 0.9993$
+(formulas in Appendix~\ref{sec:app_ct}). We train for 20\,000 iterations with
+Adam, batch size 64 and a learning rate of $4\cdot10^{-4}$ with cosine decay,
+and the model used for sampling is the target network itself.
+
+\paragraph{Improved consistency training.} Because this CT was far behind CD,
+we also trained a model with the main techniques of Song and
+Dhariwal~\cite{song2024improved} (formulas in Appendix~\ref{sec:app_ct}): no
+EMA target (the online network, without gradients, is the target), $N$ doubling
+in equal stages, noise levels drawn from a lognormal distribution that favors
+intermediate values, and a loss weighted by $1/(\sigma_{n+1} - \sigma_n)$. It was
+trained in two phases (Appendix~\ref{sec:app_recipes}): 20\,000 iterations with
+$N$ from 11 to 161 (stage 1) and 32\,289 more, from those weights, with batch
+size 128 and $N$ from 161 to 641 (final iCT). In total it sees about 5.4 million
+training images, twice the 2.6 million of CD.
+
+\subsection{Sampling from consistency models}
+\label{sec:sampling}
+
+To generate an image in one step, we draw $x_T \sim \mathcal{N}(0, \sigma(T)^2 I)$,
+with $\sigma(T) \approx 9.85$ for VE and $\sigma(T) = 1$ for RF, and return
+$f_\theta(x_T, T)$: a single network evaluation. With more steps we use
+Algorithm~1 of the original paper: for each time
+$\tau_1 > \dots > \tau_{n-1}$ we add noise back to the current prediction
+(clamped to $[-1, 1]$) and denoise it again in one jump, so that $n$ steps
+cost $n$ evaluations. The noise has to be added with the forward process of
+the teacher, so that $x_\tau$ looks like the inputs seen in training:
+\begin{equation}
+  \text{VE: } x_\tau = x + \sqrt{\sigma(\tau)^2 - \sigma(\varepsilon)^2}\; z,
+  \qquad
+  \text{RF: } x_\tau = (1 - \tau)\, x + \tau\, z,
+  \qquad z \sim \mathcal{N}(0, I).
+\end{equation}
+The paper chooses the times $\tau_i$ with a greedy search that minimizes FID,
+which we did not do. For VE we take the interior points of a Karras grid in
+$\sigma$ with $n + 1$ points ($\tau = 0.16$ for two steps, and
+$\tau = 0.60, 0.16, 0.004$ for four). For RF this rule adds almost no noise
+(it gives $\tau = 0.027$ for two steps), so we space the times uniformly from
+$\tau_\text{max} = 0.5$ down to $\varepsilon$ ($\tau = 0.5, 0.33, 0.17$ for
+four steps). We chose $\tau_\text{max}$ by inspecting samples for values
+between 0.1 and 0.9 (Appendix~\ref{sec:app_tau}).
+
+\subsection{Differences from the original paper and limitations}
+\label{sec:differences}
+
+Besides the much smaller scale (1.1\,M parameters, 40\,000 iterations), we
+differ from Song et al.~\cite{song2023consistency} in that: the diffusion
+teacher is the VE SDE~\cite{song2021sde} and not an EDM model, and the
+Rectified Flow teacher is an addition; we use $N = 150$ instead of 18, the
+pseudo-Huber distance instead of LPIPS or $\ell_2$, and re-noising times that
+are not optimized for FID; the EDM coefficients, which assume
+$x_t = x_0 + \sigma(t)\, z$, are reused for RF (where the image is also scaled
+by $1 - t$) so that both teachers share one consistency model, which is
+reasonable but not optimal; and CT and iCT are only implemented for VE (iCT
+adopts four of the improvements of~\cite{song2024improved}, not dropout or the
+Fourier embedding scale, and reaches $N = 641$ instead of 1280). Instead of FID we use a Fréchet distance on the features of
+our own classifier (Section~\ref{sec:evaluation}).
+
+\subsection{Evaluation protocol}
+\label{sec:evaluation}
+
+\paragraph{Reference classifier.} Inception-based metrics such as FID are
+designed for natural images, so we trained a small CNN on MNIST (two
+$3\times3$ convolutional blocks with 32 and 64 channels, a dense layer of 128
+units and 10 outputs; 421\,642 parameters; 10 epochs of Adam with learning rate
+$10^{-3}$ and batch size 128), which reaches 99.00\% accuracy on the test set.
+
+\paragraph{Quality and diversity.} Our main quality metric is FD-MNIST: the
+Fréchet distance between Gaussians fitted to the 128-dimensional
+penultimate-layer features of generated and real images, computed like
+FID~\cite{heusel2017fid} with our classifier in place of Inception and 10\,000
+training images as the real reference. As a secondary metric we report the
+fraction of \emph{recognizable} samples (top-1 probability $\geq 0.9$); the
+classifier is over-confident out of distribution and gives such a probability
+to 61\% of pure-noise images. Diversity is the entropy of the distribution of
+predicted digits, with maximum $\ln 10 \approx 2.30$ when all digits are
+equally frequent. Since FD depends on the number of samples, every
+configuration is evaluated on the same $N_\text{eval} = 2000$ samples,
+generated from the same initial noise within each family (VE or RF). The
+references are 2000 real test images (the best achievable values) and 2000
+images of Gaussian noise clamped to $[-1, 1]$.
+
+\paragraph{Timing.} We measure the wall-clock time to generate
+$N \in \{1, 10, 100, 500\}$ samples (mean of 3 runs after a warm-up) and
+report the time per image at $N = 500$, always on the same CPU. The time only
+depends on the network and on the number of evaluations, so it was measured once
+per family and step count and shared by the models of the same kind. The speed-up is
+relative to the 50-step teacher of the same family. We also report the number
+of network function evaluations (NFE) per sample, which does not depend on the
+hardware.
+
+% ---------------------------------------------------------------------------
+\section{Results and discussion}
+\label{sec:results}
+
+Table~\ref{tab:summary} summarizes quality, diversity and speed; the complete
+table is in Appendix~\ref{sec:app_tables}. Each model was trained once, so we
+cannot quantify run-to-run variation; evaluating the same models on five other
+noise draws gives deviations of 4 to 12 in FD (Appendix~ef{sec:app_variability}),
+so differences below about 25 should not be interpreted.
+
+% Las tablas y cifras salen de results/ (compare.py + reuse_timing.py + seed_variance.py).
+\begin{table}[!htbp]
+  \caption{Summary of the comparison ($N_\text{eval} = 2000$ samples per row).
+  FD-MNIST: lower is better; recognizable and entropy: higher is better.
+  Time per image at $N = 500$ on CPU; speed-up with respect to the 50-step
+  teacher of the same family. CM-VE (CD) was distilled from the raw VE
+  teacher, CM-RF from the 1-RF and CM-RF (reflow) from the 2-RF; CT and iCT
+  use no teacher.}
+  \label{tab:summary}
+  \centering
+  \footnotesize
+  \begin{tabular}{llrrrrrr}
+    \toprule
+    Model & Steps & NFE & FD-MNIST & Recogn. (\%) & Entropy (\%) & ms/img & Speed-up \\
+    \midrule
+    Real MNIST (test) & -- & -- & 45.1 & 97.6 & 100 & -- & -- \\
+    Pure noise & -- & -- & 2947.5 & 61.0 & 23 & -- & -- \\
+    \midrule
+    VE teacher (EMA) & 10 & 20 & 120.4 & 79.9 & 98 & 13.26 & $\times$5.0 \\
+    VE teacher (EMA) & 50 & 100 & 125.7 & 80.8 & 98 & 66.43 & $\times$1.0 \\
+    VE teacher (raw) & 50 & 100 & 205.7 & 79.4 & 95 & 66.43 & $\times$1.0 \\
+    \midrule
+    CM-VE (CD) & 1 & 1 & 456.7 & 64.2 & 95 & 0.70 & $\times$95.4 \\
+    CM-VE (CD) & 4 & 4 & 321.4 & 71.6 & 96 & 2.68 & $\times$24.8 \\
+    \midrule
+    CM-VE (iCT) & 1 & 1 & 423.8 & 66.1 & 97 & 0.70 & $\times$95.4 \\
+    CM-VE (iCT) & 4 & 4 & 178.8 & 75.2 & 98 & 2.68 & $\times$24.8 \\
+    \midrule
+    RF teacher (1-RF) & 1 & 1 & 3791.3 & 0.0 & 14 & 0.66 & $\times$50.1 \\
+    RF teacher (1-RF) & 10 & 10 & 151.9 & 78.4 & 99 & 6.61 & $\times$5.0 \\
+    RF teacher (1-RF) & 50 & 50 & 78.5 & 83.0 & 100 & 33.26 & $\times$1.0 \\
+    RF teacher (2-RF) & 1 & 1 & 533.6 & 61.4 & 98 & 0.66 & $\times$50.1 \\
+    RF teacher (2-RF) & 50 & 50 & 160.0 & 76.2 & 99 & 33.26 & $\times$1.0 \\
+    \midrule
+    CM-RF (CD) & 1 & 1 & 417.0 & 66.4 & 98 & 0.67 & $\times$49.6 \\
+    CM-RF (CD) & 4 & 4 & 264.7 & 75.2 & 99 & 2.68 & $\times$12.4 \\
+    \midrule
+    CM-RF (reflow) & 1 & 1 & 394.3 & 66.6 & 99 & 0.67 & $\times$49.6 \\
+    CM-RF (reflow) & 4 & 4 & 523.7 & 71.8 & 99 & 2.68 & $\times$12.4 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Quality versus number of steps}
+
+Real test images obtain an FD-MNIST of 45.1, the best value reachable with
+2000 samples, and pure noise 2947.5. The teachers need about 10 steps to
+produce good samples (Figure~\ref{fig:quality_nfe}): the 1-RF teacher reaches
+152 with 10 evaluations and 78.5 with 50, while the EMA VE teacher is unusable
+with 5 Heun steps (902) and saturates at 120--126 from 10 steps on. The raw VE
+teacher, the one CM-VE was distilled from, is clearly worse (FD 206 with 50
+steps). With one step the 1-RF teacher only outputs the mean of the data, a
+blurry blob (FD 3791), while the straighter 2-RF reaches 534. The distilled
+models produce digits with one evaluation (FD 457 for CM-VE and 417 for CM-RF)
+and every extra step improves them: 388 and 321 with two and four steps for
+CM-VE, 337 and 265 for CM-RF. At equal cost they are far better than their
+teachers (CM-VE with 4 evaluations, 321, against 902 and 803 for the EMA and raw
+VE teachers with 10), but they do not reach their quality: against the teacher
+each was distilled from, CM-VE is 2.2 (one step) and 1.6 (four steps) times
+worse than the raw VE teacher with 50 steps, and CM-RF 5.3 and 3.4 times worse
+than the 1-RF. CM-RF is better in absolute terms only because its teacher is
+much better (78.5 against 206). The recognizable fraction of the one-step
+models (64--66\%) is close to the 61\% of pure noise, so FD is the metric to
+trust.
+
+Reflow gives a slightly better one-step model (FD 394 against 417), but it
+\emph{worsens} the multistep ones (519 and 524 against 337 and 265). Visually,
+the reflow samples are cleaner but have thinner strokes
+(Figure~\ref{fig:samples}). The 2-RF teacher is better than the 1-RF with one
+step (534 against 3791) but worse with many (160 against 78.5 with 50 steps);
+that does not explain the multistep result: CM-RF (reflow) with one step
+(394) already beats its teacher with one step (534), and then gets worse with
+more steps while its teacher improves. We have not investigated the cause; one
+possibility is that $\tau_\text{max}$ was tuned on CM-RF and not on the reflow
+model. Training the RF consistency model from the raw teacher weights instead of
+the EMA ones produced very similar samples (Appendix~\ref{sec:app_ablations}).
+
+\paragraph{Consistency training without a teacher.} The original CT recipe is far
+from distillation: FD 1922 with one step (noisy blobs) and 912 with four
+(Table~\ref{tab:full}). The
+improved recipe (iCT) is a different story. After its first stage it reaches
+692, 429 and 256 with one, two and four steps, between 2.8 and 3.6 times better
+than CT and, with four steps, already better than CM-VE (CD) (321). After the
+second phase it reaches 424, 274 and 179, better than CM-VE (CD) with two and four
+steps (388, 321) and slightly with one (457), better with four evaluations than the raw VE teacher
+with 50 steps (206), and 1.5 times the best FD of the EMA teacher (120). It is also more
+diverse (97--98\% of the maximum entropy against 95--96\%). The comparison is
+not budget-neutral: iCT saw 5.4 million training images, against 2.6 for CD and
+1.3 for CT, and CD inherits the limits of a weak teacher.
+
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[width=0.78\linewidth]{calidad_vs_nfe.png}
+  \caption{Sample quality versus number of network function evaluations
+  (NFE): FD-MNIST (left, lower is better) and percentage of recognizable
+  samples (right). Dashed lines are teachers and solid lines consistency
+  models; gray lines mark the real-MNIST and pure-noise references.}
+  \label{fig:quality_nfe}
+\end{figure}
+
+\subsection{Sampling speed}
+
+The time per image is dominated by the network evaluations: the speed-up of
+each model is almost exactly the ratio of NFE (Table~\ref{tab:summary}). With
+one step, CM-VE and CM-RF generate an image in 0.70 and 0.67 ms, which is
+$\times 95$ faster than the 50-step VE teacher (66.4 ms, 100 evaluations) and
+$\times 50$ faster than the 50-step RF teacher (33.3 ms). The time grows
+roughly linearly with $N$ (Figure~\ref{fig:time_n}, Appendix~\ref{sec:app_time}): the time per image is almost
+constant for $N \geq 10$ and larger at $N = 1$ because of fixed overheads, so
+the speed-ups hold for any batch size. These numbers must be read together
+with the previous section: a 10-step teacher is already almost as good as a
+50-step one, so against it (FD 120 for VE and 152 for RF) the one-step
+speed-up is only $\times 19$ and $\times 10$, with an FD of 457 and 417.
+
+\subsection{Diversity}
+
+The predicted digits (entropy column of Table~\ref{tab:summary}, per-digit
+shares in Appendix~\ref{sec:app_tables}) are close to uniform for the RF
+teachers with 10 or more steps (99--100\% of the maximum entropy) and for all
+CM-RF models (98--99\%), with no sign of mode collapse. The VE family is less
+balanced: the EMA VE teacher already gives only 4\% of ones and 16\% of twos
+(against 12\% and 11\% in real MNIST), the raw teacher 2\% and 17\%, and CM-VE
+(CD) reproduces the bias of the raw teacher it was distilled from (2\% of ones,
+95--96\% entropy). iCT, which has no teacher, shows a similar deficit of ones
+(4--5\%) but is more balanced overall (97--98\%). The low entropy of the
+one-step 1-RF teacher (14\%) is not a property of the generator: its single
+blurry output is labelled as a 3 in 92\% of the cases. Likewise, the one-step
+CT model produces noise-like images that the classifier labels as 2 or 8 (88\%
+of them), as it does with pure noise.
+
+\subsection{Visual inspection}
+
+Figure~\ref{fig:samples} shows three initial noises (ten in
+Appendix~\ref{sec:app_samples}). One-step consistency models produce
+recognizable digits with ragged edges and broken strokes, and more steps clean
+the strokes and the background (the 5 of the RF family, third row). They can
+also change the digit: with four steps CM-VE (CD) turns the 4 of the second row
+into an 8-like shape and the 5 of the third row into a 3-like one, while iCT keeps
+the digit of the teacher in those two rows. The VE consistency models are visibly noisier
+than the RF ones, the CT samples are noisy blobs even with four steps, and the
+four-step iCT samples are the cleanest of the VE family.
+
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[width=0.84\linewidth]{muestras_ve_3filas.png}\\[2pt]
+  \includegraphics[width=0.84\linewidth]{muestras_rf_3filas.png}
+  \caption{Samples from the VE family (top) and the RF family (bottom). Each
+  column is a configuration and each row starts from the same initial
+  noise.}
+  \label{fig:samples}
+\end{figure}
+
+\subsection{Discussion}
+
+\paragraph{Teacher choice.} CM-RF is better than CM-VE at every number of steps
+(FD 417, 337 and 265 against 457, 388 and 321) and more diverse, but the
+comparison is not clean: the RF teacher is much better than the VE one (FD 78.5
+against 126 for the EMA teacher and 206 for the raw one that CM-VE was distilled
+from), the teachers were trained with different budgets, and RF distillation
+uses Euler steps and VE Heun. Relative to its own teacher CM-VE is the closer
+copy (2.2 and 1.6 times its FD with one and four steps, against 5.3 and 3.4 for
+CM-RF), so the advantage of CM-RF comes from the quality of its teacher more than
+from a better distillation, and we cannot attribute it to the type of teacher
+alone.
+
+\paragraph{Training without a teacher.} With the original recipe CT is clearly
+worse than distillation, as expected from a method that gets no guidance from a
+teacher~\cite{song2023consistency,song2024improved}. The improved recipe closes
+that gap and overtakes CM-VE (CD), so the weakness was the recipe and the budget
+more than the absence of a teacher, with the caveat that iCT uses twice the
+training images of CD and CD is limited by a weak teacher.
+
+\paragraph{Limitations.} Besides the differences listed in
+Section~\ref{sec:differences}: every model is a single run; FD-MNIST uses 2000
+samples and our own classifier, so it is not comparable to published FIDs; the
+timings are from one CPU; and the $\tau_i$ were chosen by eye. The gap with the
+teachers may partly come from the small network, the distance and the short
+training, which we did not ablate.
+
+% ---------------------------------------------------------------------------
+\section{Conclusions and future work}
+\label{sec:conclusions}
+
+We have trained a VE diffusion model and a Rectified Flow model on MNIST,
+distilled both into consistency models and compared them in quality,
+diversity and speed, so the four main objectives of the proposal are met. Of
+the extensions, consistency training was carried out, in its original form
+and with an improved recipe; color images
+(CIFAR-10) and conditional generation were left out for lack of time. In
+addition, following a suggestion made during the course, we added the
+Rectified Flow teacher and a reflow round.
+
+The main results are: (i) one-step consistency models generate recognizable
+digits about 50 to 95 times faster than the 50-step teachers, and more
+steps improve them smoothly; (ii) with four steps their FD-MNIST is 2.7 (VE)
+and 3.4 (RF) times worse than that of the best teacher of their family (1.6 for
+CM-VE against the raw teacher it was distilled from), and teachers with 10 to 20
+evaluations are already better; (iii) CM-RF is better than CM-VE in absolute
+terms, because its teacher is much better, although the comparison is
+confounded by the training budgets; (iv) reflow helps one-step sampling but
+not multistep sampling; (v) the original CT is far behind CD, but the improved
+recipe, with twice the training images, beats CM-VE (CD) at every number of
+steps (FD 179 against 321 with four).
+
+Future work includes distilling CM-VE from the EMA teacher and training CD
+for as many images as iCT, deriving $c_\text{skip}$ and $c_\text{out}$ for the
+RF interpolation, optimizing the re-noising times by FD, repeating the trainings
+with several seeds, and moving to larger networks, a perceptual distance and
+color images.
+
+{\small
+\bibliographystyle{unsrt}
+\bibliography{referencias}
+}
+
+% ---------------------------------------------------------------------------
+\appendix
+\section{Technical appendices}
+\label{sec:appendix}
+
+\subsection{U-Net architecture}
+\label{sec:app_unet}
+
+The encoder has four convolutional levels with 32, 64, 128 and 256 channels
+($3\times3$ kernels, no padding, stride 1 in the first level and stride 2 in
+the other three), and the decoder mirrors it with transposed convolutions;
+the outputs of the first three encoder levels are concatenated to the inputs
+of the last three decoder levels. Each level is followed by group
+normalization (4 groups in the first level, 32 in the others) and the SiLU
+activation. The time $t$ is encoded with Gaussian random Fourier features
+(128 fixed random frequencies with scale 30, giving 256 sine/cosine features)
+followed by a linear layer, and the result goes through SiLU and a dense layer
+per level whose output is added to the feature maps after every convolution
+except the last one. Of the 1\,115\,425 parameters, 128 (the random
+frequencies) are not trainable. The score network divides the output by
+$\sigma(t)$; the velocity network and the consistency models use it as it is.
+
+\subsection{Training recipes}
+\label{sec:app_recipes}
+
+\begin{table}[!htbp]
+  \caption{Training recipes. All runs use Adam, seed 42 and a CPU, with batch
+  size 64 unless stated.}
+  \label{tab:recipes}
+  \centering
+  \footnotesize
+  \begin{tabular}{p{3.4cm}p{8.9cm}}
+    \toprule
+    Model & Recipe \\
+    \midrule
+    VE teacher (EMA) & 60 epochs, lr $10^{-3}$ with cosine decay, EMA 0.999 \\
+    VE teacher (raw, used for CM-VE) & 40 epochs, constant lr $10^{-3}$, no EMA \\
+    RF teacher (1-RF) & 40 epochs, constant lr $10^{-3}$, EMA 0.999 \\
+    2-RF (reflow) & 60\,000 pairs from 100 Euler steps of the 1-RF (EMA); 10 epochs from the 1-RF weights, lr $2\cdot10^{-4}$, EMA 0.999 \\
+    CM-VE, CM-RF, CM-RF (reflow) & CD, 40\,000 iterations, constant lr $4\cdot10^{-4}$, $N = 150$, $\mu = 0.95$, pseudo-Huber, $\sigma_\text{d} = 0.5$, sampling EMA 0.9999 \\
+    CM-VE (CT) & 20\,000 iterations, lr $4\cdot10^{-4}$ with cosine decay, $N(k)$ from 2 to 151, $\mu(k)$ from 0.95 to 0.9993, pseudo-Huber, sampled with the target network \\
+    CM-VE (iCT, stage 1) & 20\,000 iterations, lr $4\cdot10^{-4}$ with cosine decay, no EMA target, $N$ from 11 to 161 in 5 stages, lognormal noise levels, weighted pseudo-Huber, sampling EMA 0.999 \\
+    CM-VE (iCT) & stage 1 plus 32\,289 iterations from its weights, batch size 128, lr $2\cdot10^{-4}$ with cosine decay, $N$ from 161 to 641 in 3 stages, otherwise as stage 1 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Consistency training curricula and loss}
+\label{sec:app_ct}
+
+\paragraph{CT.} At iteration $k$ of $K$, the number of discretization points
+and the EMA rate of the target network are
+\begin{equation}
+  N(k) = \left\lceil \sqrt{\frac{k}{K}\big((s_1 + 1)^2 - s_0^2\big) + s_0^2} - 1 \right\rceil + 1,
+  \qquad \mu(k) = \exp\!\left(\frac{s_0 \ln \mu_0}{N(k)}\right),
+\end{equation}
+with $s_0 = 2$, $s_1 = 150$ and $\mu_0 = 0.95$, so that training starts with a
+coarse grid and refines it up to $N(K) = 151$. The grid is the Karras grid in
+$\sigma$ with $N(k)$ points.
+
+\paragraph{iCT.} The number of points is
+$N(k) = \min\!\big(s_0\, 2^{\lfloor k / K' \rfloor},\, s_1\big) + 1$ with
+$K' = \lfloor K / (\log_2\lfloor s_1 / s_0 \rfloor + 1) \rfloor$, so that
+$N$ doubles at the start of each of the equal stages: $(s_0, s_1) = (10, 160)$
+in stage 1 and $(160, 640)$ in the second phase. On the same Karras grid
+$\sigma_1 < \dots < \sigma_N$, the pair $n$ is drawn with probability
+\begin{equation}
+  p_n \propto \operatorname{erf}\!\Big(\tfrac{\ln\sigma_{n+1} - P_\text{mean}}{\sqrt{2}\,P_\text{std}}\Big)
+  - \operatorname{erf}\!\Big(\tfrac{\ln\sigma_{n} - P_\text{mean}}{\sqrt{2}\,P_\text{std}}\Big),
+  \qquad P_\text{mean} = -1.1,\ P_\text{std} = 2,
+\end{equation}
+and the loss is
+$\frac{1}{\sigma_{n+1} - \sigma_n}\, d\big(f_\theta(x_{t_{n+1}}, t_{n+1}),\
+\operatorname{sg}[f_\theta(x_{t_n}, t_n)]\big)$, with $\operatorname{sg}$ the
+stop-gradient (there is no separate target network) and $d$ the pseudo-Huber
+distance. As in CT, both points share the same noise $z$.
+
+\subsection{Sampling time}
+\label{sec:app_time}
+
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[width=0.72\linewidth]{tiempo_vs_n.png}
+  \caption{Sampling time versus number of generated samples $N$ (log-log
+  scale). Dashed lines are teachers and solid lines consistency models. Only one
+  model per kind is drawn: models with the same network and number of steps
+  share the same times.}
+  \label{fig:time_n}
+\end{figure}
+
+\subsection{Re-noising time for RF}
+\label{sec:app_tau}
+
+Figure~\ref{fig:tau_sweep} shows the sweep used to choose $\tau_\text{max}$
+for multistep sampling with CM-RF, generated with
+\texttt{system/tests/cm\_tau\_sweep.py}. Up to $\tau_\text{max} = 0.3$ the
+samples are almost the same as with one step, and from 0.7 on the model
+regenerates the digit from heavy noise and many digits change or break.
+
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[height=0.72\textheight,keepaspectratio]{cm_tau_sweep_29101858.png}
+  \caption{CM-RF samples for different values of $\tau_\text{max}$. Each
+  row is a value of $\tau_\text{max}$ (0.1, 0.2, 0.3, 0.5, 0.7 and 0.9) and
+  each column a number of steps (2 and 4); the panel at the top left is the
+  one-step result, which does not depend on $\tau_\text{max}$. Every panel
+  shows the same 64 initial noises.}
+  \label{fig:tau_sweep}
+\end{figure}
+
+\subsection{Complete results}
+\label{sec:app_tables}
+
+\begin{table}[!htbp]
+  \caption{Complete results. Same columns as Table~\ref{tab:summary}. Each
+  consistency model is listed after the teacher it was distilled from (CM-VE
+  from the raw VE teacher, CM-RF from the 1-RF, CM-RF (reflow) from the 2-RF);
+  CT and iCT have no teacher. The times of models with the same network and
+  steps are the same by construction (Section~\ref{sec:evaluation}).}
+  \label{tab:full}
+  \centering
+  \footnotesize
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabular}{llrrrrrr}
+    \toprule
+    Model & Steps & NFE & FD-MNIST & Recogn. (\%) & Entropy (\%) & ms/img & Speed-up \\
+    \midrule
+    Real MNIST (test) & -- & -- & 45.1 & 97.6 & 100 & -- & -- \\
+    Pure noise & -- & -- & 2947.5 & 61.0 & 23 & -- & -- \\
+    \midrule
+    VE teacher (EMA) & 5 & 10 & 902.2 & 53.2 & 85 & 6.64 & $\times$10.0 \\
+    VE teacher (EMA) & 10 & 20 & 120.4 & 79.9 & 98 & 13.26 & $\times$5.0 \\
+    VE teacher (EMA) & 50 & 100 & 125.7 & 80.8 & 98 & 66.43 & $\times$1.0 \\
+    VE teacher (raw) & 5 & 10 & 803.1 & 57.3 & 84 & 6.64 & $\times$10.0 \\
+    VE teacher (raw) & 10 & 20 & 208.5 & 79.0 & 95 & 13.26 & $\times$5.0 \\
+    VE teacher (raw) & 50 & 100 & 205.7 & 79.4 & 95 & 66.43 & $\times$1.0 \\
+    \midrule
+    CM-VE (CD) & 1 & 1 & 456.7 & 64.2 & 95 & 0.70 & $\times$95.4 \\
+    CM-VE (CD) & 2 & 2 & 388.2 & 68.2 & 96 & 1.35 & $\times$49.3 \\
+    CM-VE (CD) & 4 & 4 & 321.4 & 71.6 & 96 & 2.68 & $\times$24.8 \\
+    \midrule
+    CM-VE (CT) & 1 & 1 & 1922.4 & 38.5 & 50 & 0.70 & $\times$95.4 \\
+    CM-VE (CT) & 2 & 2 & 1486.1 & 37.3 & 76 & 1.35 & $\times$49.3 \\
+    CM-VE (CT) & 4 & 4 & 912.2 & 52.4 & 88 & 2.68 & $\times$24.8 \\
+    \midrule
+    CM-VE (iCT, stage 1) & 1 & 1 & 691.6 & 57.2 & 94 & 0.70 & $\times$95.4 \\
+    CM-VE (iCT, stage 1) & 2 & 2 & 428.9 & 66.3 & 95 & 1.35 & $\times$49.3 \\
+    CM-VE (iCT, stage 1) & 4 & 4 & 256.4 & 70.2 & 96 & 2.68 & $\times$24.8 \\
+    \midrule
+    CM-VE (iCT) & 1 & 1 & 423.8 & 66.1 & 97 & 0.70 & $\times$95.4 \\
+    CM-VE (iCT) & 2 & 2 & 274.2 & 68.4 & 97 & 1.35 & $\times$49.3 \\
+    CM-VE (iCT) & 4 & 4 & 178.8 & 75.2 & 98 & 2.68 & $\times$24.8 \\
+    \midrule
+    RF teacher (1-RF) & 1 & 1 & 3791.3 & 0.0 & 14 & 0.66 & $\times$50.1 \\
+    RF teacher (1-RF) & 10 & 10 & 151.9 & 78.4 & 99 & 6.61 & $\times$5.0 \\
+    RF teacher (1-RF) & 50 & 50 & 78.5 & 83.0 & 100 & 33.26 & $\times$1.0 \\
+    RF teacher (2-RF) & 1 & 1 & 533.6 & 61.4 & 98 & 0.66 & $\times$50.1 \\
+    RF teacher (2-RF) & 10 & 10 & 186.4 & 74.4 & 99 & 6.61 & $\times$5.0 \\
+    RF teacher (2-RF) & 50 & 50 & 160.0 & 76.2 & 99 & 33.26 & $\times$1.0 \\
+    \midrule
+    CM-RF (CD) & 1 & 1 & 417.0 & 66.4 & 98 & 0.67 & $\times$49.6 \\
+    CM-RF (CD) & 2 & 2 & 337.0 & 70.3 & 99 & 1.37 & $\times$24.2 \\
+    CM-RF (CD) & 4 & 4 & 264.7 & 75.2 & 99 & 2.68 & $\times$12.4 \\
+    \midrule
+    CM-RF (reflow) & 1 & 1 & 394.3 & 66.6 & 99 & 0.67 & $\times$49.6 \\
+    CM-RF (reflow) & 2 & 2 & 519.4 & 68.9 & 99 & 1.37 & $\times$24.2 \\
+    CM-RF (reflow) & 4 & 4 & 523.7 & 71.8 & 99 & 2.68 & $\times$12.4 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{table}[!htbp]
+  \caption{Percentage of samples assigned to each digit by the reference
+  classifier (a perfectly balanced generator gives 10\% for each digit).}
+  \label{tab:digits}
+  \centering
+  \footnotesize
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabular}{llcccccccccc}
+    \toprule
+    Model & Steps & 0 & 1 & 2 & 3 & 4 & 5 & 6 & 7 & 8 & 9 \\
+    \midrule
+    Real MNIST (test) & -- & 9 & 12 & 11 & 10 & 11 & 9 & 9 & 10 & 9 & 10 \\
+    Pure noise & -- & 0 & 0 & 82 & 2 & 0 & 0 & 0 & 0 & 15 & 0 \\
+    \midrule
+    VE teacher (EMA) & 5 & 4 & 0 & 26 & 17 & 8 & 10 & 3 & 4 & 22 & 6 \\
+    VE teacher (EMA) & 10 & 11 & 4 & 16 & 13 & 8 & 11 & 9 & 8 & 12 & 9 \\
+    VE teacher (EMA) & 50 & 12 & 4 & 16 & 12 & 8 & 10 & 10 & 8 & 11 & 9 \\
+    VE teacher (raw) & 5 & 4 & 0 & 26 & 16 & 6 & 11 & 3 & 3 & 23 & 7 \\
+    VE teacher (raw) & 10 & 12 & 2 & 17 & 12 & 6 & 11 & 7 & 6 & 17 & 9 \\
+    VE teacher (raw) & 50 & 13 & 2 & 17 & 11 & 6 & 11 & 8 & 7 & 17 & 9 \\
+    \midrule
+    CM-VE (CD) & 1 & 10 & 2 & 17 & 14 & 6 & 13 & 7 & 7 & 16 & 9 \\
+    CM-VE (CD) & 2 & 11 & 2 & 17 & 13 & 7 & 12 & 7 & 8 & 14 & 8 \\
+    CM-VE (CD) & 4 & 13 & 2 & 16 & 11 & 7 & 12 & 7 & 7 & 16 & 10 \\
+    \midrule
+    CM-VE (CT) & 1 & 0 & 0 & 52 & 5 & 2 & 2 & 0 & 0 & 36 & 3 \\
+    CM-VE (CT) & 2 & 2 & 1 & 23 & 6 & 12 & 8 & 3 & 1 & 39 & 5 \\
+    CM-VE (CT) & 4 & 6 & 1 & 17 & 7 & 9 & 10 & 8 & 3 & 31 & 8 \\
+    \midrule
+    CM-VE (iCT, stage 1) & 1 & 7 & 2 & 20 & 14 & 9 & 14 & 7 & 8 & 14 & 6 \\
+    CM-VE (iCT, stage 1) & 2 & 8 & 2 & 19 & 14 & 8 & 13 & 7 & 8 & 15 & 6 \\
+    CM-VE (iCT, stage 1) & 4 & 9 & 3 & 17 & 13 & 7 & 13 & 8 & 8 & 16 & 8 \\
+    \midrule
+    CM-VE (iCT) & 1 & 9 & 4 & 16 & 15 & 8 & 13 & 8 & 9 & 11 & 8 \\
+    CM-VE (iCT) & 2 & 10 & 4 & 17 & 13 & 8 & 13 & 8 & 9 & 11 & 8 \\
+    CM-VE (iCT) & 4 & 11 & 5 & 14 & 14 & 7 & 11 & 10 & 9 & 11 & 9 \\
+    \midrule
+    RF teacher (1-RF) & 1 & 1 & 1 & 0 & 92 & 0 & 7 & 0 & 0 & 0 & 0 \\
+    RF teacher (1-RF) & 10 & 6 & 8 & 10 & 12 & 8 & 11 & 8 & 11 & 11 & 14 \\
+    RF teacher (1-RF) & 50 & 8 & 10 & 10 & 11 & 9 & 10 & 9 & 11 & 10 & 12 \\
+    RF teacher (2-RF) & 1 & 7 & 8 & 11 & 16 & 8 & 13 & 6 & 12 & 10 & 11 \\
+    RF teacher (2-RF) & 10 & 8 & 9 & 11 & 12 & 9 & 11 & 7 & 12 & 10 & 12 \\
+    RF teacher (2-RF) & 50 & 8 & 9 & 10 & 12 & 9 & 11 & 8 & 12 & 9 & 12 \\
+    \midrule
+    CM-RF (CD) & 1 & 6 & 8 & 11 & 15 & 7 & 12 & 7 & 12 & 11 & 11 \\
+    CM-RF (CD) & 2 & 7 & 10 & 10 & 13 & 8 & 11 & 7 & 12 & 9 & 12 \\
+    CM-RF (CD) & 4 & 7 & 10 & 11 & 14 & 7 & 12 & 7 & 12 & 8 & 12 \\
+    \midrule
+    CM-RF (reflow) & 1 & 6 & 9 & 11 & 12 & 8 & 12 & 6 & 13 & 11 & 12 \\
+    CM-RF (reflow) & 2 & 7 & 11 & 9 & 13 & 8 & 11 & 7 & 13 & 9 & 13 \\
+    CM-RF (reflow) & 4 & 7 & 11 & 9 & 12 & 8 & 11 & 7 & 14 & 8 & 13 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[width=0.78\linewidth]{distribucion_digitos.png}
+  \caption{Distribution of the digits predicted by the reference classifier
+  (graphical version of Table~\ref{tab:digits}).}
+  \label{fig:distribution}
+\end{figure}
+
+\subsection{Sampling variability}
+\label{sec:app_variability}
+
+Each model was trained once, but the same trained model evaluated on another
+batch of initial noise gives slightly different metrics. Table~\ref{tab:variability}
+repeats the evaluation of the consistency models with five noise seeds (other
+than the one of the main tables), generated with
+\texttt{system/evaluation/seed\_variance.py}. The standard deviations are 4 to 12
+for FD-MNIST, at most 1.7 points for the recognizable fraction and at most 1.2
+for the entropy, so differences of a few tens of FD points between models are
+not noise, while those of 10 or less are. Multistep sampling also draws new noise
+at every step, which is why its values in the main tables differ from these
+means by a similar amount.
+
+\begin{table}[!htbp]
+  \caption{Mean and standard deviation over five noise seeds (2000 samples each)
+  for the consistency models.}
+  \label{tab:variability}
+  \centering
+  \footnotesize
+  \begin{tabular}{llccc}
+    \toprule
+    Model & Steps & FD-MNIST & Recogn. (\%) & Entropy (\%) \\
+    \midrule
+    CM-VE (CD) & 1 & $467.8 \pm 5.3$ & $64.5 \pm 1.0$ & $94.9 \pm 0.4$ \\
+    CM-VE (CD) & 2 & $402.5 \pm 6.7$ & $66.7 \pm 0.9$ & $95.4 \pm 0.5$ \\
+    CM-VE (CD) & 4 & $330.0 \pm 6.8$ & $71.1 \pm 0.8$ & $95.6 \pm 0.4$ \\
+    \midrule
+    CM-VE (CT) & 1 & $1926.9 \pm 8.1$ & $38.8 \pm 0.6$ & $49.8 \pm 1.2$ \\
+    CM-VE (CT) & 2 & $1480.6 \pm 7.7$ & $37.5 \pm 0.7$ & $75.8 \pm 0.7$ \\
+    CM-VE (CT) & 4 & $903.1 \pm 4.8$ & $51.9 \pm 0.9$ & $88.4 \pm 0.7$ \\
+    \midrule
+    CM-VE (iCT, stage 1) & 1 & $705.6 \pm 7.8$ & $56.2 \pm 1.3$ & $94.1 \pm 0.7$ \\
+    CM-VE (iCT, stage 1) & 2 & $437.7 \pm 4.2$ & $64.3 \pm 0.8$ & $94.3 \pm 0.3$ \\
+    CM-VE (iCT, stage 1) & 4 & $261.6 \pm 3.9$ & $70.8 \pm 0.8$ & $96.5 \pm 0.4$ \\
+    \midrule
+    CM-VE (iCT) & 1 & $438.1 \pm 10.7$ & $65.0 \pm 1.7$ & $96.9 \pm 0.2$ \\
+    CM-VE (iCT) & 2 & $284.1 \pm 8.6$ & $68.9 \pm 0.8$ & $97.3 \pm 0.2$ \\
+    CM-VE (iCT) & 4 & $178.6 \pm 3.9$ & $76.5 \pm 0.9$ & $98.3 \pm 0.2$ \\
+    \midrule
+    CM-RF (CD) & 1 & $435.4 \pm 10.7$ & $65.7 \pm 0.5$ & $98.2 \pm 0.3$ \\
+    CM-RF (CD) & 2 & $353.2 \pm 8.1$ & $71.0 \pm 0.7$ & $99.0 \pm 0.1$ \\
+    CM-RF (CD) & 4 & $272.2 \pm 7.0$ & $73.6 \pm 0.7$ & $99.0 \pm 0.2$ \\
+    \midrule
+    CM-RF (reflow) & 1 & $410.6 \pm 9.4$ & $66.4 \pm 0.8$ & $98.5 \pm 0.2$ \\
+    CM-RF (reflow) & 2 & $533.7 \pm 12.3$ & $67.8 \pm 0.7$ & $98.9 \pm 0.1$ \\
+    CM-RF (reflow) & 4 & $547.2 \pm 10.9$ & $69.0 \pm 0.8$ & $98.9 \pm 0.2$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Visual samples with ten initial noises}
+\label{sec:app_samples}
+
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[width=\linewidth]{muestras_ve.png}
+  \caption{Samples from the VE family. Each column is a configuration and each
+  row starts from the same initial noise.}
+  \label{fig:samples_ve}
+\end{figure}
+
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[width=0.78\linewidth]{muestras_rf.png}
+  \caption{Samples from the RF family. Each column is a configuration and each
+  row starts from the same initial noise.}
+  \label{fig:samples_rf}
+\end{figure}
+
+\subsection{Additional ablations on the RF consistency model}
+\label{sec:app_ablations}
+
+The comparison of the teacher with and without EMA weights
+(Figure~\ref{fig:ema}) was only made visually (it is not part of the FD table).
+The 1-RF against the 2-RF (reflow) as teachers (Figure~\ref{fig:reflow}) is
+also in Table~\ref{tab:full}.
+
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[height=0.78\textheight,keepaspectratio]{cm_rf_ema_vs_noema_29101849.png}
+  \caption{CM-RF distilled from the EMA weights of the 1-RF (left) and from
+  its raw weights (right), with 1, 2, 4 and 8 steps and the 100-step teacher
+  (bottom). All panels start from the same noises.}
+  \label{fig:ema}
+\end{figure}
+
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[height=0.78\textheight,keepaspectratio]{cm_rf_1rf_vs_reflow_29101852.png}
+  \caption{CM-RF distilled from the 1-RF (left) and from the 2-RF (right), with
+  1, 2, 4 and 8 steps and the teachers with 1 and 100 steps (bottom). All
+  panels start from the same noises.}
+  \label{fig:reflow}
+\end{figure}
+
+% ---------------------------------------------------------------------------
+\section*{Author contributions}
+\pendiente{rellenar por los autores (reparto real del trabajo).}
+
+\section*{Declaration regarding the use of AI tools}
+\pendiente{confirmar por los autores. Borrador: se ha usado un asistente de IA (Claude, de Anthropic) para revisar la memoria contra el código y para redactar y recortar su versión final; los resultados y el código son de los autores.}
+
+\end{document}

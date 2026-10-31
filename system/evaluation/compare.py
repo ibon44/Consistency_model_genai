@@ -41,6 +41,9 @@ Description:
       distribution per configuration.
     - muestras_ve.png / muestras_rf.png: image grids, one column per
       configuration, every row starting from the same noise.
+    - muestras_ve_3filas.png / muestras_rf_3filas.png: compact version
+      of the previous grids (first 3 rows, columns chosen in GRID_3ROWS),
+      the ones used in the report.
 
     Model kinds and how each one is sampled:
     - "ve_teacher": VE diffusion teacher (ScoreNet), probability-flow
@@ -49,9 +52,10 @@ Description:
       evaluations, so NFE = 2 * steps.
     - "rf_teacher": Rectified Flow teacher (VelocityNet), Euler steps
       (`sampling/rectified_flow_sampler.py`). NFE = steps.
-    - "cm_ve": consistency model distilled (CD) or trained (CT) on the
-      VE process, Algorithm 1 with the sampler's default Karras
-      re-noising times. NFE = steps.
+    - "cm_ve": consistency model distilled (CD) or trained without a
+      teacher (CT, iCT) on the VE process, Algorithm 1 with the sampler's
+      default Karras re-noising times (VE_RHO_BY_STEPS can override rho
+      per step count). NFE = steps.
     - "cm_rf": consistency model on the RF process, Algorithm 1 with
       re-noising times linearly spaced from RF_TAU_MAX down to EPS (as
       in `tests/consistency_sample_and_plot_RF.py`: re-noising RF close
@@ -72,6 +76,13 @@ Description:
     Run from the repository root:
         python system/evaluation/compare.py            # full run
         python system/evaluation/compare.py --quick    # fast smoke test
+        python system/evaluation/reuse_timing.py       # after a full run
+        python system/evaluation/seed_variance.py      # sampling variability
+
+    reuse_timing.py replaces the timing columns (and tiempo_vs_n.png) with
+    the reference times measured once on an idle CPU, since the times only
+    depend on the network and the number of evaluations. A full run takes
+    about 40 minutes on CPU.
 
 License:
     Proprietary. All rights reserved.
@@ -121,14 +132,35 @@ class ModelSpec(NamedTuple):
 
 
 # ============================== CONFIG ==============================
+#
+# Every consistency model is listed next to the teacher it was distilled
+# from: CM-VE (CD) from the raw VE teacher (the EMA one is the better VE
+# teacher and is reported too), CM-RF (CD) from the EMA 1-RF and CM-RF
+# (reflow) from the EMA 2-RF. CT and iCT use no teacher.
 MODELS: List[ModelSpec] = [
-    ModelSpec("VE teacher (diffusion)", "ve_teacher", "./checkpoints/mnist_all_ve_ema.pth", [5, 10, 50]),
+    ModelSpec("VE teacher (EMA)", "ve_teacher", "./checkpoints/mnist_all_ve_ema.pth", [5, 10, 50]),
+    ModelSpec("VE teacher (raw)", "ve_teacher", "./checkpoints/mnist_all_ve.pth", [5, 10, 50]),
     ModelSpec("CM-VE (CD)", "cm_ve", "./checkpoints/mnist_all_cm_ve.pth", [1, 2, 4]),
-    ModelSpec("CM-VE (CT, no teacher)", "cm_ve", "./checkpoints/mnist_all_cm_ve_ct.pth", [1, 2, 4]),
-    ModelSpec("RF teacher", "rf_teacher", "./checkpoints_rf/mnist_all_rf_ema.pth", [1, 10, 50]),
+    ModelSpec("CM-VE (CT)", "cm_ve", "./checkpoints/mnist_all_cm_ve_ct.pth", [1, 2, 4]),
+    ModelSpec("CM-VE (iCT, stage 1)", "cm_ve", "./checkpoints/mnist_all_cm_ve_ict.pth", [1, 2, 4]),
+    ModelSpec("CM-VE (iCT)", "cm_ve", "./checkpoints/mnist_all_cm_ve_ict_n640.pth", [1, 2, 4]),
+    ModelSpec("RF teacher (1-RF)", "rf_teacher", "./checkpoints_rf/mnist_all_rf_ema.pth", [1, 10, 50]),
+    ModelSpec("RF teacher (2-RF)", "rf_teacher", "./checkpoints_rf/mnist_all_2rf_ema.pth", [1, 10, 50]),
     ModelSpec("CM-RF (CD)", "cm_rf", "./checkpoints_rf/mnist_all_cm_rf.pth", [1, 2, 4]),
     ModelSpec("CM-RF (CD, reflow)", "cm_rf", "./checkpoints_rf/mnist_all_cm_rf_reflow.pth", [1, 2, 4]),
 ]
+# Columns (model, steps) of the compact 3-row grids muestras_<family>_3filas.png
+# used in the report; a column whose checkpoint is missing is skipped.
+GRID_3ROWS: Dict[str, List[tuple]] = {
+    "VE": [("VE teacher (EMA)", 50), ("VE teacher (raw)", 50),
+           ("CM-VE (CD)", 1), ("CM-VE (CD)", 2), ("CM-VE (CD)", 4),
+           ("CM-VE (CT)", 4),
+           ("CM-VE (iCT)", 1), ("CM-VE (iCT)", 2), ("CM-VE (iCT)", 4)],
+    "RF": [("RF teacher (1-RF)", 1), ("RF teacher (1-RF)", 50),
+           ("RF teacher (2-RF)", 1), ("RF teacher (2-RF)", 50),
+           ("CM-RF (CD)", 1), ("CM-RF (CD)", 2), ("CM-RF (CD)", 4),
+           ("CM-RF (CD, reflow)", 1), ("CM-RF (CD, reflow)", 2), ("CM-RF (CD, reflow)", 4)],
+}
 CLASSIFIER_PATH = "./checkpoints/mnist_classifier.pth"
 RESULTS_DIR = "./results"
 DATA_DIR = "./data"
@@ -144,6 +176,12 @@ SIGMA_NOISE = 1.0
 SIGMA_DATA = 0.5
 EPS = 1.0e-5
 RF_TAU_MAX = 0.5
+# Karras rho of the VE consistency models' multistep grid per step count
+# (default 7, the one the reported tables were generated with). {2: 3.0} would
+# re-noise 2-step sampling at sigma~1.5 instead of ~0.5, clearly better for all
+# VE models, but it changes their 2-step rows; with 4+ steps it makes no
+# difference beyond noise.
+VE_RHO_BY_STEPS: Dict[int, float] = {}
 SEED = 42
 # ======================================================================
 
@@ -274,7 +312,9 @@ def build_configs(spec: ModelSpec, device: torch.device) -> List[Config]:
             elif is_rf:
                 taus = torch.linspace(RF_TAU_MAX, EPS, n_steps)[:-1].tolist()
             else:
-                taus = sampler.karras_intermediate_times(n_steps)
+                taus = sampler.karras_intermediate_times(
+                    n_steps, rho=VE_RHO_BY_STEPS.get(n_steps, 7.0)
+                )
             return lambda x: sampler.sample(tuple(x.shape), cm, device=device, intermediate_times=taus, x_T=x)
 
         for k in spec.steps:
@@ -324,7 +364,7 @@ def evaluate_samples(
 def save_table(rows: List[dict], results_dir: str) -> None:
     """Writes the results table as CSV and as a Markdown table."""
     columns = ["model", "steps", "nfe", "fd_mnist", "recognizable_pct", "entropy", "entropy_pct", "ms_per_image", "speedup"]
-    with open(os.path.join(results_dir, "tabla_resultados.csv"), "w", newline="") as f:
+    with open(os.path.join(results_dir, "tabla_resultados.csv"), "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=columns, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(rows)
@@ -342,7 +382,7 @@ def save_table(rows: List[dict], results_dir: str) -> None:
             f"{cell(r['recognizable_pct'], '.1f')} % | {cell(r['entropy'], '.3f')} ({cell(r['entropy_pct'], '.0f')} %) | "
             f"{cell(r['ms_per_image'], '.2f')} | {'×' + format(r['speedup'], '.1f') if r.get('speedup') else '—'} |"
         )
-    with open(os.path.join(results_dir, "tabla_resultados.md"), "w") as f:
+    with open(os.path.join(results_dir, "tabla_resultados.md"), "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
 
 
@@ -462,6 +502,35 @@ def plot_grid(columns: List[torch.Tensor], labels: List[str], path: str) -> None
     plt.close(fig)
 
 
+def build_rows(baselines: Dict[str, dict], configs: List[Config], n_max: int) -> tuple:
+    """Builds the table rows (reference rows first, then one per configuration).
+
+    The speed-up of a configuration is relative to the slowest teacher of
+    its family (the first one with the largest NFE), at batch size `n_max`.
+
+    Returns:
+        Tuple (list of row dicts, dict family -> reference teacher Config).
+    """
+    slowest_teacher: Dict[str, Config] = {}
+    for c in configs:
+        if c.is_teacher and c.timing:
+            if c.family not in slowest_teacher or c.nfe > slowest_teacher[c.family].nfe:
+                slowest_teacher[c.family] = c
+
+    rows = []
+    for name, b in baselines.items():
+        rows.append({"model": name, "steps": None, "nfe": None, "fd_mnist": b["fd_mnist"], "recognizable_pct": 100 * b["recognizable"],
+                     "entropy": b["entropy"], "entropy_pct": b["entropy_pct"], "ms_per_image": None, "speedup": None})
+    for c in configs:
+        ms = 1000 * c.timing[n_max] / n_max if c.timing else None
+        ref = slowest_teacher.get(c.family)
+        speedup = (ref.timing[n_max] / c.timing[n_max]) if (ref and c.timing) else None
+        rows.append({"model": c.model, "steps": c.steps, "nfe": c.nfe, "fd_mnist": c.metrics["fd_mnist"],
+                     "recognizable_pct": 100 * c.metrics["recognizable"], "entropy": c.metrics["entropy"],
+                     "entropy_pct": c.metrics["entropy_pct"], "ms_per_image": ms, "speedup": speedup})
+    return rows, slowest_teacher
+
+
 def main() -> None:
     """Runs the full comparison and writes the table and figures.
 
@@ -501,6 +570,7 @@ def main() -> None:
 
     noise: Dict[str, torch.Tensor] = {}
     grid_columns: Dict[str, List[tuple]] = {"VE": [], "RF": []}
+    grid_samples: Dict[tuple, torch.Tensor] = {}
     for c in configs:
         if c.family not in noise:
             generator = torch.Generator().manual_seed(SEED)
@@ -509,6 +579,7 @@ def main() -> None:
         samples = batched(c.generate, noise[c.family])
         c.metrics, c.distribution = evaluate_samples(samples, classifier, reference)
         grid_columns[c.family].append((c.label, samples[:GRID_IMAGES].cpu()))
+        grid_samples[(c.model, c.steps)] = samples[:GRID_IMAGES].cpu()
         logger.info(
             "%-36s NFE=%4d | FD=%.1f | recognizable=%.1f%% | entropy=%.3f | %.1f s",
             c.label, c.nfe, c.metrics["fd_mnist"], 100 * c.metrics["recognizable"], c.metrics["entropy"], time.time() - t0,
@@ -519,27 +590,10 @@ def main() -> None:
             c.timing = benchmark_generation_time(lambda n, c=c: c.generate(c.noise(n).to(device)), timing_sizes, timing_repeats)
             logger.info("Timing %-36s %s", c.label, {n: f"{t:.3f}s" for n, t in c.timing.items()})
 
-    n_max = max(timing_sizes)
-    slowest_teacher = {}
-    for c in configs:
-        if c.is_teacher and c.timing:
-            if c.family not in slowest_teacher or c.nfe > slowest_teacher[c.family].nfe:
-                slowest_teacher[c.family] = c
-
-    rows = []
-    for name, b in baselines.items():
-        rows.append({"model": name, "steps": None, "nfe": None, "fd_mnist": b["fd_mnist"], "recognizable_pct": 100 * b["recognizable"],
-                     "entropy": b["entropy"], "entropy_pct": b["entropy_pct"], "ms_per_image": None, "speedup": None})
-    for c in configs:
-        ms = 1000 * c.timing[n_max] / n_max if c.timing else None
-        ref = slowest_teacher.get(c.family)
-        speedup = (ref.timing[n_max] / c.timing[n_max]) if (ref and c.timing) else None
-        rows.append({"model": c.model, "steps": c.steps, "nfe": c.nfe, "fd_mnist": c.metrics["fd_mnist"],
-                     "recognizable_pct": 100 * c.metrics["recognizable"], "entropy": c.metrics["entropy"],
-                     "entropy_pct": c.metrics["entropy_pct"], "ms_per_image": ms, "speedup": speedup})
+    rows, slowest_teacher = build_rows(baselines, configs, max(timing_sizes))
 
     save_table(rows, args.results_dir)
-    with open(os.path.join(args.results_dir, "resultados.json"), "w") as f:
+    with open(os.path.join(args.results_dir, "resultados.json"), "w", encoding="utf-8") as f:
         json.dump({
             "config": {"n_eval": args.n_eval, "n_reference": N_REFERENCE, "timing_sizes": timing_sizes,
                        "timing_repeats": timing_repeats, "confidence_threshold": CONFIDENCE_THRESHOLD, "seed": SEED,
@@ -560,6 +614,13 @@ def main() -> None:
     for family, cols in grid_columns.items():
         if cols:
             plot_grid([x for _, x in cols], [l for l, _ in cols], os.path.join(args.results_dir, f"muestras_{family.lower()}.png"))
+        picked = [(m, s) for m, s in GRID_3ROWS[family] if (m, s) in grid_samples]
+        if picked:
+            plot_grid(
+                [grid_samples[k][:3] for k in picked],
+                [f"{m} · {s} step{'s' if s != 1 else ''}" for m, s in picked],
+                os.path.join(args.results_dir, f"muestras_{family.lower()}_3filas.png"),
+            )
 
     logger.info("Done in %.1f min. Results in %s", (time.time() - t_start) / 60, args.results_dir)
 

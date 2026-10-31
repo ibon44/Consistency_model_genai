@@ -191,6 +191,33 @@ def update_ema(cm_ema: torch.nn.Module, cm: torch.nn.Module, mu: float) -> None:
             p_ema.mul_(mu).add_(p, alpha=1.0 - mu)
 
 
+def atomic_save(obj, path: str) -> None:
+    """Writes to a temp file first, so an interruption can't corrupt `path`."""
+    tmp_path = path + ".tmp"
+    torch.save(obj, tmp_path)
+    os.replace(tmp_path, path)
+
+
+def save_checkpoint(
+    config: TrainConfig, cm, cm_ema, optimizer, iteration: int, n_iterations: int
+) -> None:
+    """Saves the sampling checkpoint (EMA target) and the resume state.
+
+    `iteration` is the index of the last completed iteration.
+    """
+    atomic_save(cm_ema.state_dict(), config.checkpoint_path)
+    atomic_save(
+        {
+            "cm": cm.state_dict(),
+            "cm_ema": cm_ema.state_dict(),
+            "optimizer": optimizer.state_dict(),
+            "iteration": iteration,
+            "n_iterations": n_iterations,
+        },
+        config.resume_checkpoint_path,
+    )
+
+
 def seconds_per_iteration(
     cm, cm_ema, process, loader, config: TrainConfig, device: torch.device
 ) -> float:
@@ -230,9 +257,22 @@ def train(config: TrainConfig) -> None:
 
     os.makedirs(config.checkpoint_dir, exist_ok=True)
 
+    resumed = config.resume and os.path.exists(config.resume_checkpoint_path)
+    if not config.resume and os.path.exists(config.resume_checkpoint_path):
+        # A fresh run would overwrite that progress at its first checkpoint.
+        raise SystemExit(
+            f"{config.resume_checkpoint_path} already exists: pass --resume to "
+            "continue that run, --tag NAME to start a separate one, or delete "
+            "it to start over."
+        )
+    if config.resume and not resumed:
+        logger.warning(
+            "--resume given but %s does not exist: starting from scratch",
+            config.resume_checkpoint_path,
+        )
+
     start_iteration = 0
     n_iterations = config.n_iterations
-    resumed = config.resume and os.path.exists(config.resume_checkpoint_path)
     if resumed:
         checkpoint = torch.load(config.resume_checkpoint_path, map_location=device)
         cm.load_state_dict(checkpoint["cm"])
@@ -261,6 +301,12 @@ def train(config: TrainConfig) -> None:
 
     discretization_schedule = DiscretizationSchedule(K=n_iterations)
     ema_schedule = EMADecaySchedule(discretization_schedule)
+    for group in optimizer.param_groups:
+        # The loaded optimizer carries the already-decayed LR; the cosine
+        # schedule is recursive, so fast-forwarding from it below would
+        # decay twice. Restart from the base LR.
+        group["initial_lr"] = group.get("initial_lr", config.lr)
+        group["lr"] = group["initial_lr"]
     scheduler = optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=n_iterations, last_epoch=-1
     )
@@ -271,55 +317,61 @@ def train(config: TrainConfig) -> None:
     cm.train()
     running_loss = 0.0
     run_start = time.perf_counter()
-    for iteration in range(start_iteration, n_iterations):
-        try:
-            x, _ = next(data_iter)
-        except StopIteration:
-            data_iter = iter(loader)
-            x, _ = next(data_iter)
-        x = x.to(device)
+    last_done = start_iteration - 1  # last fully completed iteration
+    try:
+        for iteration in range(start_iteration, n_iterations):
+            try:
+                x, _ = next(data_iter)
+            except StopIteration:
+                data_iter = iter(loader)
+                x, _ = next(data_iter)
+            x = x.to(device)
 
-        optimizer.zero_grad()
-        loss = consistency_training_loss(
-            cm, cm_ema, process, x, discretization_schedule, iteration,
-            distance_fn, config.eps,
+            optimizer.zero_grad()
+            loss = consistency_training_loss(
+                cm, cm_ema, process, x, discretization_schedule, iteration,
+                distance_fn, config.eps,
+            )
+            loss.backward()
+            optimizer.step()
+            scheduler.step()
+
+            mu = ema_schedule(iteration)
+            update_ema(cm_ema, cm, mu)
+            last_done = iteration
+
+            running_loss += loss.item()
+
+            if (iteration + 1) % config.log_every == 0:
+                done = iteration + 1 - start_iteration
+                eta_min = (time.perf_counter() - run_start) / done * (n_iterations - iteration - 1) / 60
+                logger.info(
+                    "[%d/%d] N=%d mu=%.5f - avg loss (last %d): %.4f | ETA %.0f min",
+                    iteration + 1, n_iterations,
+                    discretization_schedule(iteration), mu,
+                    config.log_every, running_loss / config.log_every, eta_min,
+                )
+                running_loss = 0.0
+
+            if iteration > 0 and iteration % config.checkpoint_every == 0:
+                save_checkpoint(config, cm, cm_ema, optimizer, iteration, n_iterations)
+                logger.info("Checkpoint saved at iteration %d", iteration)
+    except KeyboardInterrupt:
+        if last_done >= start_iteration:
+            save_checkpoint(config, cm, cm_ema, optimizer, last_done, n_iterations)
+        logger.warning(
+            "Interrupted at iteration %d/%d: state saved, continue with --resume",
+            last_done + 1, n_iterations,
         )
-        loss.backward()
-        optimizer.step()
-        scheduler.step()
+        return
 
-        mu = ema_schedule(iteration)
-        update_ema(cm_ema, cm, mu)
-
-        running_loss += loss.item()
-
-        if (iteration + 1) % config.log_every == 0:
-            done = iteration + 1 - start_iteration
-            eta_min = (time.perf_counter() - run_start) / done * (n_iterations - iteration - 1) / 60
-            logger.info(
-                "[%d/%d] N=%d mu=%.5f - avg loss (last %d): %.4f | ETA %.0f min",
-                iteration + 1, n_iterations,
-                discretization_schedule(iteration), mu,
-                config.log_every, running_loss / config.log_every, eta_min,
-            )
-            running_loss = 0.0
-
-        if iteration > 0 and iteration % config.checkpoint_every == 0:
-            torch.save(cm_ema.state_dict(), config.checkpoint_path)
-            torch.save(
-                {
-                    "cm": cm.state_dict(),
-                    "cm_ema": cm_ema.state_dict(),
-                    "optimizer": optimizer.state_dict(),
-                    "iteration": iteration,
-                    "n_iterations": n_iterations,
-                },
-                config.resume_checkpoint_path,
-            )
-            logger.info("Checkpoint saved at iteration %d", iteration)
-
-    torch.save(cm_ema.state_dict(), config.checkpoint_path)
-    logger.info("Consistency model (EMA target) saved to %s", config.checkpoint_path)
+    # Final save also refreshes the resume file, so its iteration counter
+    # reads n_iterations-1 (done) instead of the last periodic checkpoint.
+    save_checkpoint(config, cm, cm_ema, optimizer, n_iterations - 1, n_iterations)
+    logger.info(
+        "Training finished (%d/%d). Consistency model (EMA target) saved to %s",
+        n_iterations, n_iterations, config.checkpoint_path,
+    )
 
 
 if __name__ == "__main__":
