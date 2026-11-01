@@ -26,6 +26,9 @@
 % como en un envío anónimo y añade números de línea).
 \nipsfinalcopy
 
+% El formato pedido llama "Bibliography" a la sección de referencias.
+\renewcommand{\refname}{Bibliography}
+
 \title{Consistency Models}
 
 \author{
@@ -55,8 +58,8 @@ without a teacher. We compare everything in quality, diversity and speed, using
 a distance computed with our own digit classifier. With one evaluation, the
 distilled models are 50 to 95 times faster than the teachers with 50 steps, but
 their images are clearly worse: their distance is about 4 and 5 times larger than that
-of the best teacher of their family (2.7 and 3.4 times with four steps). The
-Rectified Flow teacher gives the better consistency model. Our first training
+of the best teacher of their family (2.7 and 3.4 times with four steps). Of the
+two teachers, Rectified Flow gives the better distilled model. Our first training
 from scratch worked badly, but a second run closer to the original paper, with
 the training images of distillation, matches the distillation of the diffusion
 teacher with one step and beats it with more. An improved recipe, with the
@@ -532,7 +535,7 @@ the digit: with four steps CM-VE (CD) breaks the 4 of the second row, CT v2 turn
 5 of the third row into a 9, and iCT v2 turns it into a 4-like shape. The VE
 consistency models are visibly noisier than the RF ones, the CT v1 samples are noisy
 blobs even with four steps, CT v2 makes digits comparable to CM-VE (CD), and the
-four-step iCT samples are the cleanest of the VE family, although many digits are
+four-step iCT samples are the cleanest of the VE consistency models, although many digits are
 still deformed. With one step, iCT v2 still shows background noise and overlapping
 strokes.
 
