@@ -6,7 +6,7 @@ describe [`results/README.md`](../README.md), con estos modelos añadidos o reno
 | Modelo | Checkpoint | Entrenamiento |
 |---|---|---|
 | CM-VE (CT v1), antes CT | `checkpoints/mnist_all_cm_ve_ct.pth` | `system/training/consistency_training.py` |
-| CM-VE (CT v2) | `pruebas_eloisa/mnist_all_cm_ve_ct.pth` | `system/training/consistency_training_v2.py` |
+| CM-VE (CT v2) | `checkpoints/mnist_all_cm_ve_ct_v2.pth` | `system/training/consistency_training_v2.py` |
 | CM-VE (iCT v1), antes iCT | `checkpoints/mnist_all_cm_ve_ict_n640.pth` | `system/training/consistency_training_improved.py` en dos fases |
 | CM-VE (iCT v2) | `checkpoints/mnist_all_cm_ve_ict_40k_ema_lrconst.pth` | `consistency_training_improved.py --iterations 40000 --sample-ema 0.9995 --constant-lr` |
 

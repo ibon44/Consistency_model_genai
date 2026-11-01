@@ -11,7 +11,7 @@ Description:
     Second version of `consistency_training.py` (CT v1, which stays as it
     was): trains a consistency model directly from data, closer to the
     CIFAR-10 setup of Song et al. (2023) and with the budget of CD. Produces
-    pruebas_eloisa/mnist_all_cm_ve_ct.pth, so it never overwrites the CT v1
+    checkpoints/mnist_all_cm_ve_ct_v2.pth, so it never overwrites the CT v1
     checkpoint (a separate EMA of the online
     network kept only for sampling, as in Song et al., 2023, App. C; same
     format as the distillation checkpoints, so every sampling/comparison
@@ -81,7 +81,7 @@ LOG_EVERY_N_BATCHES = 100
 CHECKPOINT_EVERY = 1000
 BENCHMARK_ITERATIONS = 10
 DATA_DIR = "./data"
-CHECKPOINT_DIR = "./pruebas_eloisa"  # checkpoints/ holds the CT v1 model
+CHECKPOINT_DIR = "./checkpoints"
 # ======================================================================
 
 
@@ -109,7 +109,7 @@ class TrainConfig:
     @property
     def run_name(self) -> str:
         base = f"mnist_digit{self.digit}" if self.digit is not None else "mnist_all"
-        name = f"{base}_cm_ve_ct"
+        name = f"{base}_cm_ve_ct_v2"
         return f"{name}_{self.tag}" if self.tag else name
 
     @property

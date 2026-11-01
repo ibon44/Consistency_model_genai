@@ -151,7 +151,7 @@ MODELS: List[ModelSpec] = [
     # Building a network and multistep sampling both draw from the global RNG, so
     # adding or removing any model here changes the multistep rows of all the others
     # (by less than the noise of Table 5). One-step and teacher rows do not change.
-    ModelSpec("CM-VE (CT v2)", "cm_ve", "./pruebas_eloisa/mnist_all_cm_ve_ct.pth", [1, 2, 4]),
+    ModelSpec("CM-VE (CT v2)", "cm_ve", "./checkpoints/mnist_all_cm_ve_ct_v2.pth", [1, 2, 4]),
     ModelSpec("CM-VE (iCT v2)", "cm_ve", "./checkpoints/mnist_all_cm_ve_ict_40k_ema_lrconst.pth", [1, 2, 4]),
 ]
 # Columns (model, steps) of the compact 3-row grids muestras_<family>_3filas.png
