@@ -32,7 +32,7 @@ Description:
 
     The 2-RF is then distilled into a consistency model with:
         python system/training/consistency_distillation_training.py \\
-            --teacher rf --teacher-checkpoint ./checkpoints_rf/mnist_all_2rf_ema.pth \\
+            --teacher rf --teacher-checkpoint ./checkpoints/mnist_all_2rf_ema.pth \\
             --tag reflow
 
 License:
@@ -59,9 +59,9 @@ from utils import get_device, get_logger, set_seed
 
 # ============================== CONFIG ==============================
 # 1-RF teacher whose coupling is reflowed (EMA weights, the better one).
-TEACHER_CHECKPOINT = "./checkpoints_rf/mnist_all_rf_ema.pth"
+TEACHER_CHECKPOINT = "./checkpoints/mnist_all_rf_ema.pth"
 # Weights the 2-RF starts from (None -> train from scratch).
-INIT_CHECKPOINT = "./checkpoints_rf/mnist_all_rf_ema.pth"
+INIT_CHECKPOINT = "./checkpoints/mnist_all_rf_ema.pth"
 N_PAIRS = 60000  # same size as the MNIST training set
 PAIR_STEPS = 100  # Euler steps used to solve the 1-RF ODE for each pair
 PAIR_BATCH_SIZE = 500
@@ -73,7 +73,7 @@ SIGMA_NOISE = 1.0  # must match the 1-RF teacher's sigma_noise
 EMA_DECAY = 0.999
 SEED = 42
 LOG_EVERY_N_BATCHES = 100
-CHECKPOINT_DIR = "./checkpoints_rf"
+CHECKPOINT_DIR = "./checkpoints"
 PAIRS_NAME = "reflow_pairs"
 RUN_NAME = "mnist_all_2rf"
 # ======================================================================

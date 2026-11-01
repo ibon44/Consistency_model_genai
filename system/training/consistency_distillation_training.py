@@ -13,9 +13,9 @@ Description:
     with --teacher) into a consistency model, following Song et al.,
     2023, Algorithm 2 (see `consistency/distillation.py`). Produces
     either checkpoints/mnist_all_cm_ve.pth or
-    checkpoints_rf/mnist_all_cm_rf.pth depending on --teacher (each
-    teacher has its own folder, see CHECKPOINT_DIRS, used both to read
-    the teacher weights and to save the consistency model).
+    checkpoints/mnist_all_cm_rf.pth depending on --teacher (the same
+    folder, see CHECKPOINT_DIR, is used both to read the teacher weights
+    and to save the consistency model).
 
     Unlike `ve_training.py`, this trains for a fixed number of
     iterations rather than epochs (N(k)/mu(k) in `consistency/
@@ -103,13 +103,13 @@ SEED = 42
 LOG_EVERY_N_BATCHES = 100
 CHECKPOINT_EVERY = 1000
 DATA_DIR = "./data"
-# One checkpoint folder per teacher: it holds both the teacher weights
-# that are read and the consistency model (+ resume state) that is saved.
-CHECKPOINT_DIRS = {"ve": "./checkpoints", "rf": "./checkpoints_rf"}
+# Checkpoint folder: it holds both the teacher weights that are read and
+# the consistency model (+ resume state) that is saved.
+CHECKPOINT_DIR = "./checkpoints"
 # Teacher weights to distill from. None -> <dir>/<teacher_run_name>.pth
 # for VE, and the EMA weights <dir>/<teacher_run_name>_ema.pth for RF
 # (rectified_flow_training.py saves both; the EMA copy is the better
-# teacher), with <dir> = CHECKPOINT_DIRS[teacher].
+# teacher), with <dir> = CHECKPOINT_DIR.
 # --teacher-tag ema picks <dir>/<teacher_run_name>_ema.pth for either.
 TEACHER_CHECKPOINT: Optional[str] = None
 # Distance d(x,y) for the distillation loss ("huber" is the stabler,
@@ -142,7 +142,7 @@ class TrainConfig:
     checkpoint_every: int = CHECKPOINT_EVERY
     resume: bool = False
     data_dir: str = DATA_DIR
-    checkpoint_dir: Optional[str] = None  # None -> CHECKPOINT_DIRS[teacher]
+    checkpoint_dir: str = CHECKPOINT_DIR
     distance: Literal["huber", "l2"] = DISTANCE
     schedule: Literal["fixed", "curriculum"] = SCHEDULE
     n_scales: int = N_SCALES
@@ -151,10 +151,6 @@ class TrainConfig:
     tag: Optional[str] = None
     teacher_tag: Optional[str] = None
     teacher_checkpoint: Optional[str] = TEACHER_CHECKPOINT
-
-    def __post_init__(self) -> None:
-        if self.checkpoint_dir is None:
-            self.checkpoint_dir = CHECKPOINT_DIRS[self.teacher]
 
     @property
     def teacher_run_name(self) -> str:

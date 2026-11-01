@@ -47,10 +47,10 @@ from utils import get_device
 
 
 # ============================== CONFIG ==============================
-CHECKPOINT_PATH = "./checkpoints_rf/mnist_all_cm_rf.pth"
+CHECKPOINT_PATH = "./checkpoints/mnist_all_cm_rf.pth"
 # Teacher the consistency model was distilled from (EMA weights, as in
 # consistency_distillation_training.py), shown as a reference column.
-TEACHER_CHECKPOINT_PATH = "./checkpoints_rf/mnist_all_rf_ema.pth"
+TEACHER_CHECKPOINT_PATH = "./checkpoints/mnist_all_rf_ema.pth"
 TEACHER_STEPS = 100  # Euler steps for the teacher reference column
 N_IMAGES = 15
 STEP_COUNTS = [1, 2, 4, 8, 16]  # number of consistency steps to compare

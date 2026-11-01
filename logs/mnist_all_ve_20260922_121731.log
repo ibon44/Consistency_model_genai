@@ -1,2 +1,0 @@
-[12:17:31] INFO: Training run 'mnist_all_ve' | digit=None | images=60000 | device=cpu
-[12:17:31] INFO: [1/25] batch 0 - loss: 6153.2637

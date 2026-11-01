@@ -33,12 +33,12 @@ import tests.compare_cm_rf_ema_noema as panels
 # label -> (consistency model checkpoint, teacher it was distilled from)
 VARIANTS = {
     "1-RF": (
-        "./checkpoints_rf/mnist_all_cm_rf.pth",
-        "./checkpoints_rf/mnist_all_rf_ema.pth",
+        "./checkpoints/mnist_all_cm_rf.pth",
+        "./checkpoints/mnist_all_rf_ema.pth",
     ),
     "2-RF (reflow)": (
-        "./checkpoints_rf/mnist_all_cm_rf_reflow.pth",
-        "./checkpoints_rf/mnist_all_2rf_ema.pth",
+        "./checkpoints/mnist_all_cm_rf_reflow.pth",
+        "./checkpoints/mnist_all_2rf_ema.pth",
     ),
 }
 # ======================================================================

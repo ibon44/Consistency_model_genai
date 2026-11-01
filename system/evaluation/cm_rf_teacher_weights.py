@@ -49,8 +49,8 @@ from utils import get_device, set_seed
 
 RENOISE_SEED_OFFSET = 1000
 SPECS = [
-    ModelSpec("CM-RF (EMA 1-RF)", "cm_rf", "./checkpoints_rf/mnist_all_cm_rf.pth", [1, 2, 4]),
-    ModelSpec("CM-RF (raw 1-RF)", "cm_rf", "./checkpoints_rf/mnist_all_cm_rf_noema.pth", [1, 2, 4]),
+    ModelSpec("CM-RF (EMA 1-RF)", "cm_rf", "./checkpoints/mnist_all_cm_rf.pth", [1, 2, 4]),
+    ModelSpec("CM-RF (raw 1-RF)", "cm_rf", "./checkpoints/mnist_all_cm_rf_noema.pth", [1, 2, 4]),
 ]
 
 

@@ -45,7 +45,7 @@ from utils import get_device
 
 
 # ============================== CONFIG ==============================
-CM_CHECKPOINT = "./checkpoints_rf/mnist_all_cm_rf.pth"
+CM_CHECKPOINT = "./checkpoints/mnist_all_cm_rf.pth"
 STEP_COUNTS = [2, 4]
 TAU_VALUES = [0.1, 0.2, 0.3, 0.5, 0.7, 0.9]
 SIGMA_NOISE = 1.0

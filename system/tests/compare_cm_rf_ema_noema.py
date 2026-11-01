@@ -48,12 +48,12 @@ from utils import get_device
 # label -> (consistency model checkpoint, teacher it was distilled from)
 VARIANTS = {
     "EMA": (
-        "./checkpoints_rf/mnist_all_cm_rf.pth",
-        "./checkpoints_rf/mnist_all_rf_ema.pth",
+        "./checkpoints/mnist_all_cm_rf.pth",
+        "./checkpoints/mnist_all_rf_ema.pth",
     ),
     "no EMA": (
-        "./checkpoints_rf/mnist_all_cm_rf_noema.pth",
-        "./checkpoints_rf/mnist_all_rf.pth",
+        "./checkpoints/mnist_all_cm_rf_noema.pth",
+        "./checkpoints/mnist_all_rf.pth",
     ),
 }
 STEP_COUNTS = [1, 2, 4, 8]

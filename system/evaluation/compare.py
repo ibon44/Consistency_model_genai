@@ -145,10 +145,10 @@ MODELS: List[ModelSpec] = [
     ModelSpec("CM-VE (CT v1)", "cm_ve", "./checkpoints/mnist_all_cm_ve_ct.pth", [1, 2, 4]),
     ModelSpec("CM-VE (iCT v1, stage 1)", "cm_ve", "./checkpoints/mnist_all_cm_ve_ict.pth", [1, 2, 4]),
     ModelSpec("CM-VE (iCT v1)", "cm_ve", "./checkpoints/mnist_all_cm_ve_ict_n640.pth", [1, 2, 4]),
-    ModelSpec("RF teacher (1-RF)", "rf_teacher", "./checkpoints_rf/mnist_all_rf_ema.pth", [1, 10, 50]),
-    ModelSpec("RF teacher (2-RF)", "rf_teacher", "./checkpoints_rf/mnist_all_2rf_ema.pth", [1, 10, 50]),
-    ModelSpec("CM-RF (CD)", "cm_rf", "./checkpoints_rf/mnist_all_cm_rf.pth", [1, 2, 4]),
-    ModelSpec("CM-RF (CD, reflow)", "cm_rf", "./checkpoints_rf/mnist_all_cm_rf_reflow.pth", [1, 2, 4]),
+    ModelSpec("RF teacher (1-RF)", "rf_teacher", "./checkpoints/mnist_all_rf_ema.pth", [1, 10, 50]),
+    ModelSpec("RF teacher (2-RF)", "rf_teacher", "./checkpoints/mnist_all_2rf_ema.pth", [1, 10, 50]),
+    ModelSpec("CM-RF (CD)", "cm_rf", "./checkpoints/mnist_all_cm_rf.pth", [1, 2, 4]),
+    ModelSpec("CM-RF (CD, reflow)", "cm_rf", "./checkpoints/mnist_all_cm_rf_reflow.pth", [1, 2, 4]),
     # Building a network and multistep sampling both draw from the global RNG, so
     # adding or removing any model here changes the multistep rows of all the others
     # (by less than the noise of Table 5). One-step and teacher rows do not change.
@@ -168,8 +168,8 @@ GRID_3ROWS: Dict[str, List[tuple]] = {
            ("CM-RF (CD, reflow)", 1), ("CM-RF (CD, reflow)", 2), ("CM-RF (CD, reflow)", 4)],
 }
 CLASSIFIER_PATH = "./checkpoints/mnist_classifier.pth"
-# results/ keeps the outputs of memoria_final.tex; this folder is memoria_final_v2.tex.
-RESULTS_DIR = "./results/memoria_final_v2"
+# Outputs read by the report (memoria/memoria.tex).
+RESULTS_DIR = "./results"
 DATA_DIR = "./data"
 N_EVAL = 2000
 GEN_BATCH = 500

@@ -46,7 +46,7 @@ SEED = 42
 LOG_EVERY_N_BATCHES = 100
 EMA_DECAY = 0.999  # beta for exponential moving average of model parameters
 DATA_DIR = "./data"
-CHECKPOINT_DIR = "./checkpoints_rf"
+CHECKPOINT_DIR = "./checkpoints"
 # ======================================================================
 
 
