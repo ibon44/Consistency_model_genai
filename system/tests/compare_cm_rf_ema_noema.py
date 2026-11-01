@@ -4,7 +4,8 @@
 tests/compare_cm_rf_ema_noema.py
 
 Authors:
-    Adam Maltoni <admsit0>
+    Matin Esmaeilzadeh <matinesm>
+    Eloísa Denia García <Eloodenia>
     Ibón de Mingo Arroyo <ibon44>
 
 Description:

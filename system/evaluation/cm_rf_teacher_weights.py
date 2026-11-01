@@ -4,7 +4,7 @@
 evaluation/cm_rf_teacher_weights.py
 
 Authors:
-    Eloísa Denia García
+    Eloísa Denia García <Eloodenia>
 
 Description:
     Compares CM-RF distilled from the EMA weights of the 1-RF teacher with

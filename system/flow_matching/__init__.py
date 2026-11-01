@@ -2,7 +2,8 @@
 imageGenerativeAI.flow_matching
 
 Authors:
-    Adam Maltoni <admsit0>
+    Matin Esmaeilzadeh <matinesm>
+    Eloísa Denia García <Eloodenia>
     Ibón de Mingo Arroyo <ibon44>
 
 Description:
