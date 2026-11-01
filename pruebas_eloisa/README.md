@@ -1,11 +1,15 @@
 # Pruebas de consistency training
 
+CT v2: la implementación está en `system/training/consistency_training_v2.py`.
+El CT v1 original sigue en `system/training/consistency_training.py` y guarda en
+`checkpoints/`.
+
 Ejecuta los comandos desde la raíz del repositorio.
 
 Empezar:
 
 ```powershell
-.venv\Scripts\python.exe system\training\consistency_training.py --checkpoint-dir pruebas_eloisa
+.venv\Scripts\python.exe system\training\consistency_training_v2.py
 ```
 
 Parar: pulsa Ctrl+C una sola vez y espera al mensaje `Interrupted: saved at iteration ...`.
@@ -13,7 +17,7 @@ Parar: pulsa Ctrl+C una sola vez y espera al mensaje `Interrupted: saved at iter
 Continuar:
 
 ```powershell
-.venv\Scripts\python.exe system\training\consistency_training.py --checkpoint-dir pruebas_eloisa --resume
+.venv\Scripts\python.exe system\training\consistency_training_v2.py --resume
 ```
 
 Archivos:
