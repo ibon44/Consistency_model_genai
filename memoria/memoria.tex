@@ -153,8 +153,9 @@ type (VE) and a Rectified Flow (RF), and distill each of them into a
 consistency model. We also train consistency models from scratch, without a
 teacher: two runs of the original method (CT v1 and its evolution, CT v2) and
 two with an improved recipe (iCT v1 and v2). All models use the same network, so differences between them come from
-how they are trained and not from their size. The code is written in PyTorch
-and is in the project repository.
+how they are trained and not from their size. The code, written in PyTorch,
+and a tutorial notebook are available at
+\url{https://github.com/ibon44/Consistency_model_genai}.
 
 \subsection{Data and architecture}
 \label{sec:data}
@@ -1015,10 +1016,25 @@ point higher with EMA. Each model was trained once, so this is not a general res
 
 % ---------------------------------------------------------------------------
 \clearpage
-\section*{Author contributions}
-\pendiente{rellenar por los autores (reparto real del trabajo).}
+\section*{Author Contributions}
+Roles follow the CRediT taxonomy.
+\textbf{Ibon De Mingo Arroyo}: Conceptualization, Methodology, Software (code
+structure, VE diffusion teacher, consistency distillation, consistency training
+and improved consistency training), Investigation, Writing -- original draft.
+\textbf{Eloísa Denia García}: Methodology, Software (Rectified Flow teacher,
+reflow, consistency distillation from Rectified Flow, CT v2 and iCT v2 runs),
+Investigation, Visualization (RF ablations), Writing -- original draft.
+\textbf{Matin Esmaeilzadeh}: Methodology (evaluation protocol), Software
+(reference classifier, metrics and comparison pipeline), Formal analysis,
+Validation, Visualization, Writing -- original draft, Writing -- review \&
+editing.
 
 \section*{Declaration regarding the use of AI tools}
-\pendiente{confirmar por los autores. Borrador: se ha usado un asistente de IA (Claude, de Anthropic) para revisar la memoria contra el código y para redactar y recortar su versión final; los resultados y el código son de los autores.}
+During the preparation of this manuscript, the authors used Claude (Anthropic;
+Claude Opus 5.5 and Claude Sonnet 5.5) for AI-assisted coding and language
+editing. The use of the tool was limited to helping write and debug parts of the
+code (training scripts and the evaluation pipeline), checking the numbers and
+claims of the report against the code and the results, and editing the wording
+of the report and the notebook.
 
 \end{document}
