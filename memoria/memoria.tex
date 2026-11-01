@@ -29,7 +29,7 @@
 \title{Consistency Models}
 
 \author{
-Ibon De Mingo Arroyo \\
+Ibon de Mingo Arroyo \\
 Universidad Autónoma de Madrid \\
 \And
 Eloísa Denia García \\
@@ -54,7 +54,7 @@ one into a consistency model, and also train consistency models from scratch,
 without a teacher. We compare everything in quality, diversity and speed, using
 a distance computed with our own digit classifier. With one evaluation, the
 distilled models are 50 to 95 times faster than the teachers with 50 steps, but
-their images are clearly worse: their distance is 4 to 5 times larger than that
+their images are clearly worse: their distance is about 4 and 5 times larger than that
 of the best teacher of their family (2.7 and 3.4 times with four steps). The
 Rectified Flow teacher gives the better consistency model. Our first training
 from scratch worked badly, but a second run closer to the original paper, with
@@ -445,15 +445,15 @@ their teachers (CM-VE with 4 evaluations gets 323, while the EMA and raw VE
 teachers get 902 and 803 with 10), but they do not reach their quality. Compared
 with the teacher each one was distilled from, CM-VE is 2.2 times worse with one
 step and 1.6 times with four steps (raw VE teacher, 50 steps), and CM-RF is 5.3
-and 3.4 times worse (1-RF). CM-RF is better in absolute terms only because its
-teacher is much better (78.5 against 206). The recognizable fraction of the
+and 3.4 times worse (1-RF). CM-RF is better in absolute terms mainly because its
+teacher is much better (78.5 against 206; see the Discussion). The recognizable fraction of the
 one-step models (64--66\%) is close to the 61\% of pure noise, so this metric
 says little about them and we rely on FD and on the images.
 
 Reflow barely changes the one-step model (FD 394 against 417, at the limit of the
 sampling noise), but it makes the multistep ones \emph{worse} (528 and 528 against
-340 and 268). Visually, the reflow samples have thinner strokes
-(Figure~\ref{fig:samples}).
+340 and 268). Visually, with two and four steps the reflow samples have fainter, less
+saturated strokes (Figure~\ref{fig:samples}).
 The 2-RF teacher is better than the 1-RF with one step (534 against 3791) but
 worse with many steps (160 against 78.5 with 50); this does not explain the
 result: CM-RF (reflow) with one step (394) already beats its teacher with one
@@ -499,9 +499,11 @@ $\times 50$ faster than the 50-step RF teacher (33.3 ms). The total time grows
 roughly linearly with the number of images $N$ (Figure~\ref{fig:time_n},
 Appendix~\ref{sec:app_time}); the time per image is almost constant for
 $N \geq 10$ and larger for $N = 1$ because of fixed overheads, so the speed-ups
-hold for any batch size. These numbers must be read together with the previous
-section: a 10-step teacher is already almost as good as a 50-step one, so
-compared with it (FD 120 for VE and 152 for RF) the one-step speed-up is only
+of the tables (measured at $N = 500$) also hold for batches of ten or more
+images, but for a single image they are smaller ($\times 75$ for VE and
+$\times 43$ for RF with one step). These numbers must be read together with the
+previous section: a 10-step teacher is already as good as a 50-step one for VE
+and within a factor of two for RF, so compared with it (FD 120 for VE and 152 for RF) the one-step speed-up is only
 $\times 19$ and $\times 10$, with an FD of 457 and 417.
 
 \subsection{Diversity}
@@ -509,15 +511,15 @@ $\times 19$ and $\times 10$, with an FD of 457 and 417.
 The digits predicted by the classifier (entropy column of
 Table~\ref{tab:summary}, per-digit shares in Appendix~\ref{sec:app_tables}) are
 close to uniform for the RF teachers with 10 or more steps (99--100\% of the
-maximum entropy) and for all CM-RF models (98--99\%), so we see no mode
-collapse. The VE family is less balanced. The EMA VE teacher already gives only
+maximum entropy) and for all CM-RF models (98--99\%), so we see no collapse
+onto a few digits (this measure cannot detect a lack of variety within a digit). The VE family is less balanced. The EMA VE teacher already gives only
 4\% of ones and 16\% of twos (real MNIST has 12\% and 11\%), the raw teacher
 gives 2\% and 17\%, and CM-VE (CD) copies the bias of the raw teacher it was
 distilled from (2\% of ones, 95--96\% entropy). CT v2 and iCT have no teacher but
 show a similar lack of ones (4--5\%), although they are more balanced overall
-(97--99\%). The low entropy of the one-step 1-RF teacher (14\%) does not mean
-that the generator is bad: its single blurry output is labelled as a 3 in 92\%
-of the cases. In the same way, the one-step CT v1 model makes noise-like images that
+(97--99\%). The low entropy of the one-step 1-RF teacher (14\%) has a trivial cause: it
+outputs almost the same blurry image for every noise, which the classifier
+labels as a 3 in 92\% of the cases. In the same way, the one-step CT v1 model makes noise-like images that
 the classifier labels as 2 or 8 (88\% of them), as it does with pure noise.
 
 \subsection{Visual inspection}
@@ -583,9 +585,9 @@ Flow teacher and a reflow round.
 
 The main results are: (i) one-step consistency models make recognizable digits
 about 50 to 95 times faster than the 50-step teachers, and more steps improve
-them smoothly; (ii) with four steps their FD-MNIST is 2.7 (VE) and 3.4 (RF) times
+them, except for CM-RF (reflow); (ii) with four steps their FD-MNIST is 2.7 (VE) and 3.4 (RF) times
 worse than that of the best teacher of their family (1.6 for CM-VE compared with
-the raw teacher it was distilled from), and teachers with 10 to 20 evaluations
+the raw teacher it was distilled from), and teachers with 10 evaluations (RF) or 20 (VE)
 are already better; (iii) CM-RF is better than CM-VE in absolute terms, but its
 teacher is also much better and the training budgets differ; (iv) reflow barely
 changes one-step sampling and, with the re-noising times chosen for CM-RF, hurts
@@ -711,7 +713,8 @@ distance. As in CT, both points share the same noise $z$.
 \label{sec:app_time}
 
 Figure~\ref{fig:time_n} shows that the total sampling time grows roughly linearly
-with the number of images, so the speed-ups of the main text hold for any batch size.
+with the number of images. The speed-ups of the main text hold for batches of ten
+or more images; for a single image, fixed overheads make them smaller.
 
 \begin{figure}[H]
   \centering
@@ -983,6 +986,10 @@ of the 1-RF, both evaluated on the same noise, generated with
 steps. The difference is 16, 29 and 12, so only the two-step one exceeds the
 threshold of 25 we use (Section~\ref{sec:results}). The entropy is also about one
 point higher with EMA. Each model was trained once, so this is not a general result.
+The one-step EMA rows are the same as those of CM-RF in Table~\ref{tab:variability};
+the multistep ones differ slightly (for example 354.4 against 353.2 with two
+steps) because the noise added in multistep sampling comes from a different
+random state in each script.
 
 \begin{table}[H]
   \caption{CM-RF distilled from the EMA or the raw weights of the 1-RF. Mean and
@@ -1007,7 +1014,7 @@ point higher with EMA. Each model was trained once, so this is not a general res
 
 \begin{figure}[H]
   \centering
-  \includegraphics[height=0.58\textheight,keepaspectratio]{cm_rf_ema_vs_noema_29101849.png}
+  \includegraphics[height=0.52\textheight,keepaspectratio]{cm_rf_ema_vs_noema_29101849.png}
   \caption{CM-RF distilled from the EMA weights of the 1-RF (left) and from
   its raw weights (right), with 1, 2, 4 and 8 steps and the 100-step teacher
   (bottom). All panels start from the same noises.}
@@ -1018,7 +1025,7 @@ point higher with EMA. Each model was trained once, so this is not a general res
 \clearpage
 \section*{Author Contributions}
 Roles follow the CRediT taxonomy.
-\textbf{Ibon De Mingo Arroyo}: Conceptualization, Methodology, Software (code
+\textbf{Ibon de Mingo Arroyo}: Conceptualization, Methodology, Software (code
 structure, VE diffusion teacher, consistency distillation, consistency training
 and improved consistency training), Investigation, Writing -- original draft.
 \textbf{Eloísa Denia García}: Methodology, Software (Rectified Flow teacher,
