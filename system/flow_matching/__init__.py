@@ -1,5 +1,5 @@
 """
-imageGenerativeAI.flow_matching
+flow_matching/__init__.py
 
 Authors:
     Matin Esmaeilzadeh <matinesm>

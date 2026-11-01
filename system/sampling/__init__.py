@@ -1,5 +1,5 @@
 """
-imageGenerativeAI.sampling
+sampling/__init__.py
 
 Authors:
     Matin Esmaeilzadeh <matinesm>
@@ -7,8 +7,8 @@ Authors:
     Ibón de Mingo Arroyo <ibon44>
 
 Description:
-    This module defines the sampling methods used in the imageGenerativeAI 
-    library. It includes EulerMaruyama, PredictorCorrector,
+    This module defines the sampling methods used in the
+    project. It includes EulerMaruyama, PredictorCorrector,
     ProbabilityFlow, RectifiedFlowSampler and ConsistencySampler.
 
 License:

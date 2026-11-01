@@ -1,5 +1,5 @@
 """
-imageGenerativeAI.diffusion
+diffusion/__init__.py
 
 Authors:
     Matin Esmaeilzadeh <matinesm>

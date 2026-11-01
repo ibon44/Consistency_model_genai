@@ -1,5 +1,5 @@
 """
-imageGenerativeAI.consistency
+consistency/__init__.py
 
 Authors:
     Matin Esmaeilzadeh <matinesm>

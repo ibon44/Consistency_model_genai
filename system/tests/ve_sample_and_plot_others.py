@@ -29,9 +29,9 @@ Description:
     - ConsistencySampler drives a distilled consistency model
       (`models.consistency_wrapper.ConsistencyWrapper`), not a raw
       score model -- see `consistency_sample_and_plot.py` instead.
-    - RectifiedFlowSampler targets `flow_matching.rectified_flow.
-      RectifiedFlow` and is unimplemented (`sample` raises
-      NotImplementedError).
+    - RectifiedFlowSampler integrates the ODE of a Rectified Flow
+      (`flow_matching.rectified_flow.RectifiedFlow`), not of a diffusion
+      process -- see `rf_sample_and_plot.py` instead.
 
     Edit the CONFIG block below to point at a checkpoint trained on
     the whole dataset or a single digit.

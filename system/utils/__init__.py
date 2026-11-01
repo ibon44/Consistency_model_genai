@@ -1,5 +1,5 @@
 """
-imageGenerativeAI.utils
+utils/__init__.py
 
 Authors:
     Matin Esmaeilzadeh <matinesm>

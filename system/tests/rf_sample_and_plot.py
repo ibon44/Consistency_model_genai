@@ -41,7 +41,7 @@ CHECKPOINT_PATH = (
 N_IMAGES = 10
 STEP_COUNTS = [1, 2, 10, 50]
 SEED = 42
-RESULTS_DIR = "./results"
+FIGURES_DIR = "./figures"
 # ======================================================================
 
 
@@ -87,8 +87,8 @@ def main() -> None:
     fig.suptitle(f"Rectified Flow samples ({run_name})")
     plt.tight_layout()
 
-    os.makedirs(RESULTS_DIR, exist_ok=True)
-    out_path = os.path.join(RESULTS_DIR, f"{run_name}_samples.png")
+    os.makedirs(FIGURES_DIR, exist_ok=True)
+    out_path = os.path.join(FIGURES_DIR, f"{run_name}_samples.png")
     fig.savefig(out_path, dpi=150)
     print(f"Figure saved to {out_path}")
 

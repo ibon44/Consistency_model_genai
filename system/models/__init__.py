@@ -1,5 +1,5 @@
 """
-imageGenerativeAI.models
+models/__init__.py
 
 Authors:
     Matin Esmaeilzadeh <matinesm>
@@ -19,7 +19,6 @@ __all__ = [
     "GaussianRandomFourierFeatures",
     "Dense",
     "ScoreNet",
-    "ScoreNetColor",
     "VelocityNet",
     "ConsistencyWrapper",
 ]
@@ -27,5 +26,4 @@ __all__ = [
 from .base import BaseScoreModel
 from .consistency_wrapper import ConsistencyWrapper
 from .score_unet import Dense, GaussianRandomFourierFeatures, ScoreNet
-from .score_unet_color import ScoreNetColor
 from .velocity_unet import VelocityNet

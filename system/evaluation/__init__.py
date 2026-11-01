@@ -1,5 +1,5 @@
 """
-imageGenerativeAI.evaluation
+evaluation/__init__.py
 
 Authors:
     Matin Esmaeilzadeh <matinesm>
