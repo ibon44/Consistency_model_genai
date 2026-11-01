@@ -1,3 +1,5 @@
+haz
+
 # Consistency Models on MNIST
 
 Small-scale reproduction of *Consistency Models* (Song et al., 2023) for the
@@ -35,7 +37,7 @@ system/
   consistency/      CD, CT and iCT losses, discretization and EMA schedules
   models/           U-Nets (score, velocity) and the consistency-model wrapper
   sampling/         samplers: Euler-Maruyama, predictor-corrector, probability flow,
-                    exponential integrator, Rectified Flow and consistency sampling
+                    Rectified Flow and consistency sampling
   training/         one training script per model
   evaluation/       MNIST classifier, FD-MNIST and other metrics, timing, comparison
   tests/            sampling demos and the RF ablations of figures/

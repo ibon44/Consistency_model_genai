@@ -26,8 +26,6 @@ Description:
 
     The other samplers under `sampling/` are NOT included here because
     they don't apply to a VE score model:
-    - ExponentialIntegrator requires a VP/sub-VP `beta_schedule`, which
-      `VarianceExplodingDiffusion` does not expose.
     - ConsistencySampler drives a distilled consistency model
       (`models.consistency_wrapper.ConsistencyWrapper`), not a raw
       score model -- see `consistency_sample_and_plot.py` instead.

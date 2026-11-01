@@ -1,3 +1,21 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+sampling/probability_flow.py
+
+Authors:
+    Matin Esmaeilzadeh <matinesm>
+    Eloísa Denia García <Eloodenia>
+    Ibón de Mingo Arroyo <ibon44>
+
+Description:
+    This module implements sampling by solving the probability flow
+    ODE of a diffusion process with an adaptive Runge-Kutta integrator
+    (scipy's solve_ivp).
+
+License:
+    Proprietary. All rights reserved.
+"""
 
 from typing import Any, Optional, Tuple
 

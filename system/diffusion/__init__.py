@@ -7,9 +7,8 @@ Authors:
     Ibón de Mingo Arroyo <ibon44>
 
 Description:
-    This module provides implementations of various diffusion models.
-    It includes Variance Preserving, Variance Exploding, and Sub-Variance
-    Preserving Diffusion models.
+    This module provides the Variance Exploding (VE) diffusion process
+    used as the diffusion teacher.
 
 License:
     Proprietary. All rights reserved.
@@ -17,14 +16,8 @@ License:
 
 __all__ = [
     "DiffusionProcess",
-    "VariancePreservingDiffusion",
     "VarianceExplodingDiffusion",
-    "SubVariancePreservingDiffusion",
-    "LinearBetaSchedule",
 ]
 
 from .base import DiffusionProcess
-from .schedules import LinearBetaSchedule
-from .subvp import SubVariancePreservingDiffusion
 from .ve import VarianceExplodingDiffusion
-from .vp import VariancePreservingDiffusion
