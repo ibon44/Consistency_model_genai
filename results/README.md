@@ -2,6 +2,8 @@
 
 Todo lo de esta carpeta lo genera `system/evaluation/` desde la raíz del repo
 (las figuras de la memoria se leen de aquí, `memoria/memoria_final.tex`).
+Los resultados de `memoria/memoria_final_v2.tex`, con CT v2 e iCT v2, están en
+[`memoria_final_v2/`](memoria_final_v2/README.md).
 
 | Archivo | Qué es | Cómo se genera |
 |---|---|---|

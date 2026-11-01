@@ -93,6 +93,7 @@ class TrainConfig:
     n_iterations: int = N_ITERATIONS
     budget_minutes: Optional[float] = BUDGET_MINUTES
     lr: float = LEARNING_RATE
+    constant_lr: bool = False
     sigma: float = SIGMA
     sigma_data: float = SIGMA_DATA
     eps: float = EPS
@@ -138,6 +139,10 @@ def parse_args() -> TrainConfig:
              "minutes on this machine; overrides --iterations."
     )
     parser.add_argument("--lr", type=float, default=LEARNING_RATE)
+    parser.add_argument(
+        "--constant-lr", action="store_true",
+        help="Keep the learning rate constant instead of the cosine decay."
+    )
     parser.add_argument("--sigma", type=float, default=SIGMA)
     parser.add_argument("--sigma-data", type=float, default=SIGMA_DATA)
     parser.add_argument("--s0", type=int, default=S0)
@@ -170,6 +175,7 @@ def parse_args() -> TrainConfig:
         n_iterations=args.iterations,
         budget_minutes=args.budget_minutes,
         lr=args.lr,
+        constant_lr=args.constant_lr,
         sigma=args.sigma,
         sigma_data=args.sigma_data,
         s0=args.s0,
@@ -203,6 +209,7 @@ def save_checkpoint(
             "n_iterations": n_iterations,
             "s0": config.s0,
             "s1": config.s1,
+            "constant_lr": config.constant_lr,
         },
         config.resume_checkpoint_path,
     )
@@ -270,6 +277,7 @@ def train(config: TrainConfig) -> None:
         # --s0/--s1 say now.
         config.s0 = checkpoint.get("s0", config.s0)
         config.s1 = checkpoint.get("s1", config.s1)
+        config.constant_lr = checkpoint.get("constant_lr", config.constant_lr)
         logger.info(
             "Resumed from %s at iteration %d/%d",
             config.resume_checkpoint_path, start_iteration, n_iterations,
@@ -297,17 +305,19 @@ def train(config: TrainConfig) -> None:
     discretization_schedule = ImprovedDiscretizationSchedule(
         K=n_iterations, s0=config.s0, s1=config.s1
     )
-    for group in optimizer.param_groups:
-        # The loaded optimizer carries the already-decayed LR; the cosine
-        # schedule is recursive, so fast-forwarding from it below would
-        # decay twice. Restart from the base LR.
-        group["initial_lr"] = group.get("initial_lr", config.lr)
-        group["lr"] = group["initial_lr"]
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=n_iterations, last_epoch=-1
-    )
-    for _ in range(start_iteration):  # fast-forward the LR schedule on resume
-        scheduler.step()
+    scheduler = None
+    if not config.constant_lr:
+        for group in optimizer.param_groups:
+            # The loaded optimizer carries the already-decayed LR; the cosine
+            # schedule is recursive, so fast-forwarding from it below would
+            # decay twice. Restart from the base LR.
+            group["initial_lr"] = group.get("initial_lr", config.lr)
+            group["lr"] = group["initial_lr"]
+        scheduler = optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=n_iterations, last_epoch=-1
+        )
+        for _ in range(start_iteration):  # fast-forward the LR schedule on resume
+            scheduler.step()
 
     data_iter = iter(loader)
     cm.train()
@@ -332,7 +342,8 @@ def train(config: TrainConfig) -> None:
             if config.grad_clip > 0:
                 torch.nn.utils.clip_grad_norm_(cm.parameters(), config.grad_clip)
             optimizer.step()
-            scheduler.step()
+            if scheduler is not None:
+                scheduler.step()
 
             # EMA with warmup: a plain slow EMA would keep the random init
             # for thousands of steps.

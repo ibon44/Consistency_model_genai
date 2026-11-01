@@ -141,28 +141,34 @@ MODELS: List[ModelSpec] = [
     ModelSpec("VE teacher (EMA)", "ve_teacher", "./checkpoints/mnist_all_ve_ema.pth", [5, 10, 50]),
     ModelSpec("VE teacher (raw)", "ve_teacher", "./checkpoints/mnist_all_ve.pth", [5, 10, 50]),
     ModelSpec("CM-VE (CD)", "cm_ve", "./checkpoints/mnist_all_cm_ve.pth", [1, 2, 4]),
-    ModelSpec("CM-VE (CT)", "cm_ve", "./checkpoints/mnist_all_cm_ve_ct.pth", [1, 2, 4]),
-    ModelSpec("CM-VE (iCT, stage 1)", "cm_ve", "./checkpoints/mnist_all_cm_ve_ict.pth", [1, 2, 4]),
-    ModelSpec("CM-VE (iCT)", "cm_ve", "./checkpoints/mnist_all_cm_ve_ict_n640.pth", [1, 2, 4]),
+    ModelSpec("CM-VE (CT v1)", "cm_ve", "./checkpoints/mnist_all_cm_ve_ct.pth", [1, 2, 4]),
+    ModelSpec("CM-VE (iCT v1, stage 1)", "cm_ve", "./checkpoints/mnist_all_cm_ve_ict.pth", [1, 2, 4]),
+    ModelSpec("CM-VE (iCT v1)", "cm_ve", "./checkpoints/mnist_all_cm_ve_ict_n640.pth", [1, 2, 4]),
     ModelSpec("RF teacher (1-RF)", "rf_teacher", "./checkpoints_rf/mnist_all_rf_ema.pth", [1, 10, 50]),
     ModelSpec("RF teacher (2-RF)", "rf_teacher", "./checkpoints_rf/mnist_all_2rf_ema.pth", [1, 10, 50]),
     ModelSpec("CM-RF (CD)", "cm_rf", "./checkpoints_rf/mnist_all_cm_rf.pth", [1, 2, 4]),
     ModelSpec("CM-RF (CD, reflow)", "cm_rf", "./checkpoints_rf/mnist_all_cm_rf_reflow.pth", [1, 2, 4]),
+    # Building a network and multistep sampling both draw from the global RNG, so
+    # adding or removing any model here changes the multistep rows of all the others
+    # (by less than the noise of Table 5). One-step and teacher rows do not change.
+    ModelSpec("CM-VE (CT v2)", "cm_ve", "./pruebas_eloisa/mnist_all_cm_ve_ct.pth", [1, 2, 4]),
+    ModelSpec("CM-VE (iCT v2)", "cm_ve", "./checkpoints/mnist_all_cm_ve_ict_40k_ema_lrconst.pth", [1, 2, 4]),
 ]
 # Columns (model, steps) of the compact 3-row grids muestras_<family>_3filas.png
 # used in the report; a column whose checkpoint is missing is skipped.
 GRID_3ROWS: Dict[str, List[tuple]] = {
     "VE": [("VE teacher (EMA)", 50), ("VE teacher (raw)", 50),
            ("CM-VE (CD)", 1), ("CM-VE (CD)", 2), ("CM-VE (CD)", 4),
-           ("CM-VE (CT)", 4),
-           ("CM-VE (iCT)", 1), ("CM-VE (iCT)", 2), ("CM-VE (iCT)", 4)],
+           ("CM-VE (CT v1)", 4), ("CM-VE (CT v2)", 1), ("CM-VE (CT v2)", 4),
+           ("CM-VE (iCT v1)", 4), ("CM-VE (iCT v2)", 1), ("CM-VE (iCT v2)", 4)],
     "RF": [("RF teacher (1-RF)", 1), ("RF teacher (1-RF)", 50),
            ("RF teacher (2-RF)", 1), ("RF teacher (2-RF)", 50),
            ("CM-RF (CD)", 1), ("CM-RF (CD)", 2), ("CM-RF (CD)", 4),
            ("CM-RF (CD, reflow)", 1), ("CM-RF (CD, reflow)", 2), ("CM-RF (CD, reflow)", 4)],
 }
 CLASSIFIER_PATH = "./checkpoints/mnist_classifier.pth"
-RESULTS_DIR = "./results"
+# results/ keeps the outputs of memoria_final.tex; this folder is memoria_final_v2.tex.
+RESULTS_DIR = "./results/memoria_final_v2"
 DATA_DIR = "./data"
 N_EVAL = 2000
 GEN_BATCH = 500
@@ -392,13 +398,13 @@ STEP_MARKERS = ["o", "s", "^", "D", "v"]
 def model_colors(configs: List[Config]) -> Dict[str, tuple]:
     """Assigns each model a fixed color, shared by every figure.
 
-    Colors come from matplotlib's 'tab10' palette in the order the
+    Colors come from matplotlib's 'tab20' palette in the order the
     models appear in MODELS, so a model keeps its color across the
     quality and timing plots.
     """
     models = list(dict.fromkeys(c.model for c in configs))
-    palette = plt.get_cmap("tab10")
-    return {m: palette(i % 10) for i, m in enumerate(models)}
+    palette = plt.get_cmap("tab20")
+    return {m: palette(i % 20) for i, m in enumerate(models)}
 
 
 def plot_quality_vs_nfe(configs: List[Config], baselines: Dict[str, dict], path: str) -> None:
