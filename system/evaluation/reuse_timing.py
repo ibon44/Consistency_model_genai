@@ -37,7 +37,7 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from evaluation.compare import (
-    MODELS, RESULTS_DIR, Config, build_rows, plot_time_vs_n, save_table,
+    APPENDIX_ONLY, MODELS, RESULTS_DIR, Config, build_rows, plot_time_vs_n, save_table,
 )
 
 
@@ -79,7 +79,8 @@ def main() -> None:
     # only the first model of each kind (otherwise the lines overlap).
     first_of_kind = {}
     for spec in MODELS:
-        first_of_kind.setdefault(spec.kind, spec.name)
+        if spec.name not in APPENDIX_ONLY:
+            first_of_kind.setdefault(spec.kind, spec.name)
     shown = [c for c, e in zip(configs, results["configs"]) if c.model == first_of_kind[kind_of[e["model"]]]]
     plot_time_vs_n(shown, os.path.join(args.results_dir, "tiempo_vs_n.png"))
     print(f"Timings of {len(configs)} configurations replaced with {args.reference}")

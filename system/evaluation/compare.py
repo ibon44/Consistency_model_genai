@@ -45,6 +45,8 @@ Description:
     - muestras_ve_3filas.png / muestras_rf_3filas.png: compact version
       of the previous grids (first 3 rows, columns chosen in GRID_3ROWS),
       the ones used in the report.
+    - muestras_ve_sin_ema.png: VE teacher and CD with and without EMA
+      in the teacher (5 rows, columns in NOEMA_GRID).
 
     Model kinds and how each one is sampled:
     - "ve_teacher": VE diffusion teacher (ScoreNet), probability-flow
@@ -139,9 +141,12 @@ class ModelSpec(NamedTuple):
 # teacher and is reported too), CM-RF (CD) from the EMA 1-RF and CM-RF
 # (reflow) from the EMA 2-RF. CT and iCT use no teacher.
 MODELS: List[ModelSpec] = [
-    ModelSpec("VE teacher (EMA)", "ve_teacher", "./checkpoints/mnist_all_ve_ema.pth", [5, 10, 50]),
-    ModelSpec("VE teacher (raw)", "ve_teacher", "./checkpoints/mnist_all_ve.pth", [5, 10, 50]),
-    ModelSpec("CM-VE (CD)", "cm_ve", "./checkpoints/mnist_all_cm_ve.pth", [1, 2, 4]),
+    # "VE teacher" is the teacher of CM-VE (CD): 60 epochs, EMA weights. The
+    # earlier teacher without EMA and the CD distilled from it (first CD run)
+    # are kept as an ablation (see APPENDIX_ONLY).
+    ModelSpec("VE teacher", "ve_teacher", "./checkpoints/mnist_all_ve_ema.pth", [5, 10, 50]),
+    ModelSpec("VE teacher (no EMA)", "ve_teacher", "./checkpoints/mnist_all_ve.pth", [5, 10, 50]),
+    ModelSpec("CM-VE (CD, no-EMA teacher)", "cm_ve", "./checkpoints/mnist_all_cm_ve.pth", [1, 2, 4]),
     ModelSpec("CM-VE (CT v1)", "cm_ve", "./checkpoints/mnist_all_cm_ve_ct.pth", [1, 2, 4]),
     ModelSpec("CM-VE (iCT v1, stage 1)", "cm_ve", "./checkpoints/mnist_all_cm_ve_ict.pth", [1, 2, 4]),
     ModelSpec("CM-VE (iCT v1)", "cm_ve", "./checkpoints/mnist_all_cm_ve_ict_n640.pth", [1, 2, 4]),
@@ -154,14 +159,32 @@ MODELS: List[ModelSpec] = [
     # (by less than the noise of Table 5). One-step and teacher rows do not change.
     ModelSpec("CM-VE (CT v2)", "cm_ve", "./checkpoints/mnist_all_cm_ve_ct_v2.pth", [1, 2, 4]),
     ModelSpec("CM-VE (iCT v2)", "cm_ve", "./checkpoints/mnist_all_cm_ve_ict_40k_ema_lrconst.pth", [1, 2, 4]),
+    ModelSpec("CM-VE (CD)", "cm_ve", "./checkpoints/mnist_all_cm_ve_ema.pth", [1, 2, 4]),
+]
+# Models shown only in the appendix tables of the report (and not in the main
+# figure): earlier runs and ablations kept to show the progression.
+# The first two (earlier VE teacher without EMA and the CD distilled from it)
+# are also left out of the digit-distribution heatmap and of muestras_ve.png;
+# they have their own figure, muestras_ve_sin_ema.png (NOEMA_GRID).
+ABLATION_ONLY = {"VE teacher (no EMA)", "CM-VE (CD, no-EMA teacher)"}
+APPENDIX_ONLY = ABLATION_ONLY | {"CM-VE (iCT v1, stage 1)", "CM-VE (iCT v1)"}
+# Columns (model, steps, label) of the EMA vs no-EMA teacher comparison grid.
+NOEMA_GRID = [
+    ("VE teacher", 50, "EMA teacher · 50 steps"),
+    ("CM-VE (CD)", 1, "CD from EMA · 1 step"), ("CM-VE (CD)", 2, "CD from EMA · 2 steps"),
+    ("CM-VE (CD)", 4, "CD from EMA · 4 steps"),
+    ("VE teacher (no EMA)", 50, "no-EMA teacher · 50 steps"),
+    ("CM-VE (CD, no-EMA teacher)", 1, "CD from no-EMA · 1 step"),
+    ("CM-VE (CD, no-EMA teacher)", 2, "CD from no-EMA · 2 steps"),
+    ("CM-VE (CD, no-EMA teacher)", 4, "CD from no-EMA · 4 steps"),
 ]
 # Columns (model, steps) of the compact 3-row grids muestras_<family>_3filas.png
 # used in the report; a column whose checkpoint is missing is skipped.
 GRID_3ROWS: Dict[str, List[tuple]] = {
-    "VE": [("VE teacher (EMA)", 50), ("VE teacher (raw)", 50),
+    "VE": [("VE teacher", 50),
            ("CM-VE (CD)", 1), ("CM-VE (CD)", 2), ("CM-VE (CD)", 4),
            ("CM-VE (CT v1)", 4), ("CM-VE (CT v2)", 1), ("CM-VE (CT v2)", 4),
-           ("CM-VE (iCT v1)", 4), ("CM-VE (iCT v2)", 1), ("CM-VE (iCT v2)", 4)],
+           ("CM-VE (iCT v2)", 1), ("CM-VE (iCT v2)", 2), ("CM-VE (iCT v2)", 4)],
     "RF": [("RF teacher (1-RF)", 1), ("RF teacher (1-RF)", 50),
            ("RF teacher (2-RF)", 1), ("RF teacher (2-RF)", 50),
            ("CM-RF (CD)", 1), ("CM-RF (CD)", 2), ("CM-RF (CD)", 4),
@@ -610,15 +633,21 @@ def main() -> None:
                          "distribution": c.distribution, "timings": {str(n): t for n, t in c.timing.items()}} for c in configs],
         }, f, indent=2, ensure_ascii=False)
 
-    plot_quality_vs_nfe(configs, baselines, os.path.join(args.results_dir, "calidad_vs_nfe.png"))
+    plot_quality_vs_nfe(
+        [c for c in configs if c.model not in APPENDIX_ONLY], baselines,
+        os.path.join(args.results_dir, "calidad_vs_nfe.png"),
+    )
     if not args.no_timing:
         plot_time_vs_n(configs, os.path.join(args.results_dir, "tiempo_vs_n.png"))
+    shown = [c for c in configs if c.model not in ABLATION_ONLY]
     plot_distribution(
-        list(baselines) + [c.label for c in configs],
-        [b["distribution"] for b in baselines.values()] + [c.distribution for c in configs],
+        list(baselines) + [c.label for c in shown],
+        [b["distribution"] for b in baselines.values()] + [c.distribution for c in shown],
         os.path.join(args.results_dir, "distribucion_digitos.png"),
     )
+    ablation_labels = {c.label for c in configs if c.model in ABLATION_ONLY}
     for family, cols in grid_columns.items():
+        cols = [(l, x) for l, x in cols if l not in ablation_labels]
         if cols:
             plot_grid([x for _, x in cols], [l for l, _ in cols], os.path.join(args.results_dir, f"muestras_{family.lower()}.png"))
         picked = [(m, s) for m, s in GRID_3ROWS[family] if (m, s) in grid_samples]
@@ -628,6 +657,13 @@ def main() -> None:
                 [f"{m} · {s} step{'s' if s != 1 else ''}" for m, s in picked],
                 os.path.join(args.results_dir, f"muestras_{family.lower()}_3filas.png"),
             )
+
+    picked = [(m, s, l) for m, s, l in NOEMA_GRID if (m, s) in grid_samples]
+    if len(picked) == len(NOEMA_GRID):
+        plot_grid(
+            [grid_samples[(m, s)][:5] for m, s, _ in picked], [l for _, _, l in picked],
+            os.path.join(args.results_dir, "muestras_ve_sin_ema.png"),
+        )
 
     logger.info("Done in %.1f min. Results in %s", (time.time() - t_start) / 60, args.results_dir)
 
