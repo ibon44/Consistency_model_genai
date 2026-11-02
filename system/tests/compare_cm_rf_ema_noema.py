@@ -34,7 +34,6 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import matplotlib.pyplot as plt
 import torch
-
 from flow_matching import RectifiedFlow
 from models.consistency_wrapper import ConsistencyWrapper
 from models.velocity_unet import VelocityNet
@@ -42,7 +41,6 @@ from sampling.consistency_sampler import ConsistencySampler
 from sampling.rectified_flow_sampler import RectifiedFlowSampler
 from tests.consistency_sample_and_plot_RF import build_intermediate_times
 from utils import get_device
-
 
 # ============================== CONFIG ==============================
 # label -> (consistency model checkpoint, teacher it was distilled from)
@@ -136,7 +134,8 @@ def compare(variants: Dict[str, Tuple[str, str]], figure_prefix: str) -> None:
             panels[i][j] = to_grid(x_teacher * 2 - 1)
 
     _, axes = plt.subplots(
-        len(row_titles), len(variants),
+        len(row_titles),
+        len(variants),
         figsize=(5 * len(variants), 5 * len(row_titles)),
     )
     for i, row_title in enumerate(row_titles):

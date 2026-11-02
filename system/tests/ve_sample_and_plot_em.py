@@ -21,15 +21,13 @@ License:
 import os
 import sys
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import torch
-
 from diffusion.ve import VarianceExplodingDiffusion
 from models.score_unet import ScoreNet
 from sampling.euler_maruyama import EulerMaruyama
 from utils import get_device, plot_image_evolution
-
 
 # ============================== CONFIG ==============================
 CHECKPOINT_PATH = "./checkpoints/mnist_all_ve_ema.pth"
@@ -47,9 +45,7 @@ def main() -> None:
 
     diffusion_process = VarianceExplodingDiffusion()
     score_model = ScoreNet(marginal_prob_std=diffusion_process.sigma_t).to(device)
-    score_model.load_state_dict(
-        torch.load(CHECKPOINT_PATH, map_location=device)
-    )
+    score_model.load_state_dict(torch.load(CHECKPOINT_PATH, map_location=device))
     score_model.eval()
 
     sampler = EulerMaruyama(process=diffusion_process)

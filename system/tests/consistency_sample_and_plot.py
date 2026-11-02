@@ -25,26 +25,24 @@ License:
 import os
 import sys
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from typing import List
 
 import matplotlib.pyplot as plt
 import torch
-
 from diffusion.ve import VarianceExplodingDiffusion
 from models.consistency_wrapper import ConsistencyWrapper
 from models.score_unet import ScoreNet
 from sampling.consistency_sampler import ConsistencySampler
 from utils import get_device
 
-
 # ============================== CONFIG ==============================
-CHECKPOINT_PATH = "./checkpoints/mnist_all_cm_ve.pth"
+CHECKPOINT_PATH = "./checkpoints/mnist_all_cm_ve_ema.pth"
 N_IMAGES = 15
 STEP_COUNTS = [1, 2, 4, 8, 16]  # number of consistency steps to compare
-SIGMA = 25.0        # must match the VE teacher/consistency training sigma
-SIGMA_DATA = 0.5    # must match consistency_distillation_training.py
+SIGMA = 25.0  # must match the VE teacher/consistency training sigma
+SIGMA_DATA = 0.5  # must match consistency_distillation_training.py
 EPS = 1.0e-5
 SEED = 42
 # ======================================================================
@@ -84,7 +82,10 @@ def main() -> None:
     process = VarianceExplodingDiffusion(sigma=SIGMA)
     backbone = ScoreNet(marginal_prob_std=None)
     cm = ConsistencyWrapper(
-        backbone=backbone, sigma_data=SIGMA_DATA, eps=EPS, sigma_t=process.sigma_t,
+        backbone=backbone,
+        sigma_data=SIGMA_DATA,
+        eps=EPS,
+        sigma_t=process.sigma_t,
     ).to(device)
     cm.load_state_dict(torch.load(CHECKPOINT_PATH, map_location=device))
     cm.eval()
@@ -100,8 +101,11 @@ def main() -> None:
     for n_steps in STEP_COUNTS:
         intermediate_times = sampler.karras_intermediate_times(n_steps)
         x = sampler.sample(
-            shape, cm, device=device,
-            intermediate_times=intermediate_times, x_T=x_T,
+            shape,
+            cm,
+            device=device,
+            intermediate_times=intermediate_times,
+            x_T=x_T,
         )
         columns.append(x)
 

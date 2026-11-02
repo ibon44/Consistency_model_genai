@@ -262,7 +262,7 @@ def fd_mnist(
     value even for a perfect generator), so every model must be
     evaluated with the same N, and the FD of real held-out images with
     that same N is the "perfect generator" baseline to report next to
-    the models (≈ 48 with N = 2000 against 10,000 training images).
+    the models (≈ 45 with N = 2000 against 10,000 training images).
 
     Args:
         classifier: Trained MNISTClassifier.

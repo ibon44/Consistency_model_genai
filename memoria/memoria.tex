@@ -34,7 +34,7 @@
 \title{Consistency Models}
 
 \author{
-Ibon de Mingo Arroyo \\
+Ibón de Mingo Arroyo \\
 Universidad Autónoma de Madrid \\
 \And
 Eloísa Denia García \\
@@ -313,11 +313,11 @@ improvement.
   \label{tab:versions}
   \centering
   \footnotesize
-  \begin{tabular}{lp{7.6cm}rr}
+  \begin{tabular}{lp{6.8cm}rr}
     \toprule
     Model & Recipe & Iterations & Images \\
     \midrule
-    CT v1 & original CT: cosine lr, $\mu_0 = 0.95$, target-network sampling & 20\,000 & 1.3 M \\
+    CT v1 & original CT: cosine lr, $\mu_0 = 0.95$, target-net sampling & 20\,000 & 1.3 M \\
     CT v2 & constant lr, $\mu_0 = 0.9$, sampling EMA 0.9995 & 40\,000 & 2.6 M \\
     iCT v1 & improved loss; $N$ up to 161, then to 641 (batch 128) & 20\,000 + 32\,289 & 5.4 M \\
     iCT v2 & improved loss; $N$ up to 161, constant lr, EMA 0.9995 & 40\,000 & 2.6 M \\
@@ -406,7 +406,8 @@ table is in Appendix~\ref{sec:app_tables}. Each model was trained only once, so
 we cannot measure how much the results change between runs. We can measure the
 noise coming from sampling: evaluating the same models on five other noise
 draws changes FD by up to 13 (Appendix~\ref{sec:app_variability}), so differences
-smaller than about 25 should not be interpreted.
+smaller than about 25 should not be interpreted. The labels of the figures call
+CM-RF (reflow) ``CM-RF (CD, reflow)''.
 
 % Las tablas y cifras salen de results/ (compare.py + reuse_timing.py + seed_variance.py).
 \begin{table}[!htbp]
@@ -483,9 +484,7 @@ sampling noise), but it makes the multistep ones \emph{worse} (521 and 537 again
 saturated strokes (Figure~\ref{fig:samples}). The 2-RF teacher is worse than the
 1-RF with many steps (160 against 78.5 with 50), but this does not explain the
 result: CM-RF (reflow) already beats its teacher with one step (394 against 534),
-and then gets worse with more steps while its teacher gets better. We did not
-investigate the cause; one possibility is that $\tau_\text{max}$ was chosen for
-CM-RF and not for the reflow model. Distilling from the raw weights of the 1-RF
+and then gets worse with more steps while its teacher gets better. Distilling from the raw weights of the 1-RF
 instead of the EMA ones gives similar samples but a slightly worse FD
 (Appendix~\ref{sec:app_ablations}).
 
@@ -536,7 +535,7 @@ close to uniform for the RF teachers with 10 or more steps (99--100\% of the
 maximum entropy) and for all CM-RF models (98--99\%), so we see no collapse
 onto a few digits (the measure cannot detect a lack of variety within a digit).
 The VE family is less balanced: the VE teacher gives only 4\% of ones and 16\% of
-twos (real MNIST has 12\% and 11\%), and CM-VE (CD), CT v2 and iCT show a similar
+twos (real MNIST has 12\% and 11\%), and CM-VE (CD), CT v2 and the final iCT models show a similar
 lack of ones (3--5\%), with 97--99\% entropy. The low entropy of the one-step 1-RF
 teacher (14\%) and of the one-step CT v1 model has a trivial cause: the first
 outputs almost the same blurry image for every noise (a 3 in 92\% of the cases)
@@ -579,8 +578,8 @@ distilled model, and inside the VE family a teacher whose FD went from 206 to 12
 improved CM-VE by only 36 to 61 (Appendix~\ref{sec:app_noema}). This suggests that,
 above some quality, what limits our distilled models is something shared by all
 the runs (the small network, 2.6 million images, the distance) and not the
-teacher; CT v2 and iCT v2, without a teacher, reach the same one-step FD (454 and
-418), although we did not test this directly. The comparison is not clean anyway:
+teacher; without a teacher, iCT v2 reaches the same one-step FD (418) and CT v2 is
+slightly worse (454), although we did not test this directly. The comparison is not clean anyway:
 the teachers had different budgets, RF distillation uses Euler steps while VE uses
 Heun, and each model was trained once.
 
@@ -617,7 +616,7 @@ and 3.4 (RF) times worse than that of their 50-step teachers, and teachers with
 10 evaluations (RF) or 20 (VE) are already better; (iii) CM-RF and CM-VE reach
 about the same FD even though the RF teacher is much better, so the teacher does
 not seem to be the main limit; (iv) reflow barely changes one-step sampling and
-hurts multistep sampling with the re-noising times chosen for CM-RF; (v) our first
+hurts multistep sampling; (v) our first
 CT is far behind CD, but CT v2, with the same training images, is about as good as
 CM-VE (FD 268 against 279 with four steps), and iCT v2 reaches 163.
 
@@ -745,7 +744,7 @@ or more images; for a single image, fixed overheads make them smaller.
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=0.72\linewidth]{tiempo_vs_n.png}
+  \includegraphics[width=0.9\linewidth]{tiempo_vs_n.png}
   \caption{Sampling time versus number of generated samples $N$ (log-log
   scale). Dashed lines are teachers and solid lines consistency models. Only one
   model per kind is drawn: models with the same network and number of steps
@@ -1098,7 +1097,7 @@ uses the EMA teacher, which is the one the reported CM-VE was distilled from.
 \clearpage
 \section*{Author Contributions}
 Roles follow the CRediT taxonomy.
-\textbf{Ibon de Mingo Arroyo}: Conceptualization, Methodology, Software (code
+\textbf{Ibón de Mingo Arroyo}: Conceptualization, Methodology, Software (code
 structure, VE diffusion teacher, consistency distillation, consistency training
 and improved consistency training), Investigation, Writing -- original draft.
 \textbf{Eloísa Denia García}: Methodology, Software (Rectified Flow teacher,

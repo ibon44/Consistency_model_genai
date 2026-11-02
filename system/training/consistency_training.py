@@ -44,31 +44,32 @@ import time
 from dataclasses import dataclass
 from typing import Literal, Optional
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import torch
 import torch.optim as optim
-from torch.utils.data import DataLoader
-
 from consistency.ct_loss import consistency_training_loss
 from consistency.distances import pseudo_huber_distance, squared_l2_distance
 from consistency.schedules import DiscretizationSchedule, EMADecaySchedule
-from data import get_dataloader
 from diffusion.ve import VarianceExplodingDiffusion
 from models.consistency_wrapper import ConsistencyWrapper
 from models.score_unet import ScoreNet
+from torch.utils.data import DataLoader
 from utils import get_device, get_logger, set_seed
 
+from data import get_dataloader
 
 # ============================== CONFIG ==============================
 DIGIT: Optional[int] = None
 
 BATCH_SIZE = 64
 N_ITERATIONS = 20_000
-BUDGET_MINUTES: Optional[float] = None   # overrides N_ITERATIONS when set
+BUDGET_MINUTES: Optional[float] = None  # overrides N_ITERATIONS when set
 LEARNING_RATE = 4.0e-4
-SIGMA = 25.0             # VE base sigma, same as the teacher / CD runs
-SIGMA_DATA = 0.5         # std of MNIST in [-1, 1], used by ConsistencyWrapper
+SIGMA = 25.0  # VE base sigma, same as the teacher / CD runs
+SIGMA_DATA = (
+    0.5  # value of Song et al., used by ConsistencyWrapper (real MNIST std: ~0.62)
+)
 EPS = 1.0e-5
 DISTANCE: Literal["huber", "l2"] = "huber"
 DISTANCE_FNS = {"huber": pseudo_huber_distance, "l2": squared_l2_distance}
@@ -122,9 +123,11 @@ def parse_args() -> TrainConfig:
     parser.add_argument("--batch-size", type=int, default=BATCH_SIZE)
     parser.add_argument("--iterations", type=int, default=N_ITERATIONS)
     parser.add_argument(
-        "--budget-minutes", type=float, default=BUDGET_MINUTES,
+        "--budget-minutes",
+        type=float,
+        default=BUDGET_MINUTES,
         help="Size the run (iteration count) to take about this many "
-             "minutes on this machine; overrides --iterations."
+        "minutes on this machine; overrides --iterations.",
     )
     parser.add_argument("--lr", type=float, default=LEARNING_RATE)
     parser.add_argument("--sigma", type=float, default=SIGMA)
@@ -133,12 +136,14 @@ def parse_args() -> TrainConfig:
     parser.add_argument("--seed", type=int, default=SEED)
     parser.add_argument("--checkpoint-every", type=int, default=CHECKPOINT_EVERY)
     parser.add_argument(
-        "--resume", action="store_true",
-        help="Resume from checkpoints/<run_name>_resume.pth if it exists."
+        "--resume",
+        action="store_true",
+        help="Resume from checkpoints/<run_name>_resume.pth if it exists.",
     )
     parser.add_argument(
-        "--tag", default=None,
-        help="Optional suffix for the run name (e.g. --tag test)."
+        "--tag",
+        default=None,
+        help="Optional suffix for the run name (e.g. --tag test).",
     )
     args = parser.parse_args()
     return TrainConfig(
@@ -283,21 +288,29 @@ def train(config: TrainConfig) -> None:
         n_iterations = checkpoint["n_iterations"]
         logger.info(
             "Resumed from %s at iteration %d/%d",
-            config.resume_checkpoint_path, start_iteration, n_iterations,
+            config.resume_checkpoint_path,
+            start_iteration,
+            n_iterations,
         )
     elif config.budget_minutes is not None:
         sec_per_it = seconds_per_iteration(cm, cm_ema, process, loader, config, device)
         n_iterations = max(1000, int(config.budget_minutes * 60 / sec_per_it))
         logger.info(
             "Budget %.0f min at %.3f s/iter -> %d iterations",
-            config.budget_minutes, sec_per_it, n_iterations,
+            config.budget_minutes,
+            sec_per_it,
+            n_iterations,
         )
 
     logger.info(
         "Consistency training '%s' | digit=%s | images=%d | iterations=%d | "
         "distance=%s | device=%s",
-        config.run_name, config.digit, len(loader.dataset), n_iterations,
-        config.distance, device,
+        config.run_name,
+        config.digit,
+        len(loader.dataset),
+        n_iterations,
+        config.distance,
+        device,
     )
 
     discretization_schedule = DiscretizationSchedule(K=n_iterations)
@@ -330,8 +343,14 @@ def train(config: TrainConfig) -> None:
 
             optimizer.zero_grad()
             loss = consistency_training_loss(
-                cm, cm_ema, process, x, discretization_schedule, iteration,
-                distance_fn, config.eps,
+                cm,
+                cm_ema,
+                process,
+                x,
+                discretization_schedule,
+                iteration,
+                distance_fn,
+                config.eps,
             )
             loss.backward()
             optimizer.step()
@@ -345,12 +364,21 @@ def train(config: TrainConfig) -> None:
 
             if (iteration + 1) % config.log_every == 0:
                 done = iteration + 1 - start_iteration
-                eta_min = (time.perf_counter() - run_start) / done * (n_iterations - iteration - 1) / 60
+                eta_min = (
+                    (time.perf_counter() - run_start)
+                    / done
+                    * (n_iterations - iteration - 1)
+                    / 60
+                )
                 logger.info(
                     "[%d/%d] N=%d mu=%.5f - avg loss (last %d): %.4f | ETA %.0f min",
-                    iteration + 1, n_iterations,
-                    discretization_schedule(iteration), mu,
-                    config.log_every, running_loss / config.log_every, eta_min,
+                    iteration + 1,
+                    n_iterations,
+                    discretization_schedule(iteration),
+                    mu,
+                    config.log_every,
+                    running_loss / config.log_every,
+                    eta_min,
                 )
                 running_loss = 0.0
 
@@ -362,7 +390,8 @@ def train(config: TrainConfig) -> None:
             save_checkpoint(config, cm, cm_ema, optimizer, last_done, n_iterations)
         logger.warning(
             "Interrupted at iteration %d/%d: state saved, continue with --resume",
-            last_done + 1, n_iterations,
+            last_done + 1,
+            n_iterations,
         )
         return
 
@@ -371,7 +400,9 @@ def train(config: TrainConfig) -> None:
     save_checkpoint(config, cm, cm_ema, optimizer, n_iterations - 1, n_iterations)
     logger.info(
         "Training finished (%d/%d). Consistency model (EMA target) saved to %s",
-        n_iterations, n_iterations, config.checkpoint_path,
+        n_iterations,
+        n_iterations,
+        config.checkpoint_path,
     )
 
 

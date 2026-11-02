@@ -43,11 +43,10 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import torch
 import torch.optim as optim
-
 from consistency.ict_loss import (
     ImprovedDiscretizationSchedule,
     improved_consistency_training_loss,
@@ -61,23 +60,22 @@ from consistency_training import (
 from diffusion.ve import VarianceExplodingDiffusion
 from utils import get_device, get_logger, set_seed
 
-
 # ============================== CONFIG ==============================
 DIGIT: Optional[int] = None
 
 BATCH_SIZE = 64
 N_ITERATIONS = 20_000
-BUDGET_MINUTES: Optional[float] = None   # overrides N_ITERATIONS when set
+BUDGET_MINUTES: Optional[float] = None  # overrides N_ITERATIONS when set
 LEARNING_RATE = 4.0e-4
-SIGMA = 25.0             # VE base sigma, same as the teacher / other runs
+SIGMA = 25.0  # VE base sigma, same as the teacher / other runs
 SIGMA_DATA = 0.5
 EPS = 1.0e-5
-S0 = 10                  # N(k) starts at s0 + 1 ...
-S1 = 160                 # ... and ends at s1 + 1 (doubling each stage)
-P_MEAN = -1.1            # lognormal noise-level sampling (log sigma)
+S0 = 10  # N(k) starts at s0 + 1 ...
+S1 = 160  # ... and ends at s1 + 1 (doubling each stage)
+P_MEAN = -1.1  # lognormal noise-level sampling (log sigma)
 P_STD = 2.0
 SAMPLE_EMA_RATE = 0.999  # EMA of the online weights, used for sampling only
-GRAD_CLIP = 0.0          # max grad norm; 0 disables clipping
+GRAD_CLIP = 0.0  # max grad norm; 0 disables clipping
 SEED = 42
 LOG_EVERY_N_BATCHES = 100
 CHECKPOINT_EVERY = 1000
@@ -135,14 +133,17 @@ def parse_args() -> TrainConfig:
     parser.add_argument("--batch-size", type=int, default=BATCH_SIZE)
     parser.add_argument("--iterations", type=int, default=N_ITERATIONS)
     parser.add_argument(
-        "--budget-minutes", type=float, default=BUDGET_MINUTES,
+        "--budget-minutes",
+        type=float,
+        default=BUDGET_MINUTES,
         help="Size the run (iteration count) to take about this many "
-             "minutes on this machine; overrides --iterations."
+        "minutes on this machine; overrides --iterations.",
     )
     parser.add_argument("--lr", type=float, default=LEARNING_RATE)
     parser.add_argument(
-        "--constant-lr", action="store_true",
-        help="Keep the learning rate constant instead of the cosine decay."
+        "--constant-lr",
+        action="store_true",
+        help="Keep the learning rate constant instead of the cosine decay.",
     )
     parser.add_argument("--sigma", type=float, default=SIGMA)
     parser.add_argument("--sigma-data", type=float, default=SIGMA_DATA)
@@ -155,19 +156,22 @@ def parse_args() -> TrainConfig:
     parser.add_argument("--seed", type=int, default=SEED)
     parser.add_argument("--checkpoint-every", type=int, default=CHECKPOINT_EVERY)
     parser.add_argument(
-        "--resume", action="store_true",
-        help="Resume from checkpoints/<run_name>_resume.pth if it exists."
+        "--resume",
+        action="store_true",
+        help="Resume from checkpoints/<run_name>_resume.pth if it exists.",
     )
     parser.add_argument(
-        "--init-from", default=None,
+        "--init-from",
+        default=None,
         help="Start from the weights of this consistency-model checkpoint "
-             "(e.g. checkpoints/mnist_all_cm_ve_ict.pth) instead of a random "
-             "init: the optimizer and the curriculum restart, so combine it "
-             "with --s0/--s1 and a lower --lr to keep refining a finished run."
+        "(e.g. checkpoints/mnist_all_cm_ve_ict.pth) instead of a random "
+        "init: the optimizer and the curriculum restart, so combine it "
+        "with --s0/--s1 and a lower --lr to keep refining a finished run.",
     )
     parser.add_argument(
-        "--tag", default=None,
-        help="Optional suffix for the run name (e.g. --tag test)."
+        "--tag",
+        default=None,
+        help="Optional suffix for the run name (e.g. --tag test).",
     )
     args = parser.parse_args()
     return TrainConfig(
@@ -231,8 +235,14 @@ def seconds_per_iteration(cm, process, loader, config: TrainConfig, device) -> f
             start = time.perf_counter()
         x, _ = next(data_iter)
         loss = improved_consistency_training_loss(
-            cm, process, x.to(device), schedule, 999, config.eps,
-            config.p_mean, config.p_std,
+            cm,
+            process,
+            x.to(device),
+            schedule,
+            999,
+            config.eps,
+            config.p_mean,
+            config.p_std,
         )
         loss.backward()
         cm.zero_grad(set_to_none=True)
@@ -281,7 +291,9 @@ def train(config: TrainConfig) -> None:
         config.constant_lr = checkpoint.get("constant_lr", config.constant_lr)
         logger.info(
             "Resumed from %s at iteration %d/%d",
-            config.resume_checkpoint_path, start_iteration, n_iterations,
+            config.resume_checkpoint_path,
+            start_iteration,
+            n_iterations,
         )
     elif config.init_from is not None:
         weights = torch.load(config.init_from, map_location=device)
@@ -293,14 +305,21 @@ def train(config: TrainConfig) -> None:
         n_iterations = max(1000, int(config.budget_minutes * 60 / sec_per_it))
         logger.info(
             "Budget %.0f min at %.3f s/iter -> %d iterations",
-            config.budget_minutes, sec_per_it, n_iterations,
+            config.budget_minutes,
+            sec_per_it,
+            n_iterations,
         )
 
     logger.info(
         "Improved consistency training '%s' | digit=%s | images=%d | "
         "iterations=%d | N: %d -> %d | device=%s",
-        config.run_name, config.digit, len(loader.dataset), n_iterations,
-        config.s0 + 1, config.s1 + 1, device,
+        config.run_name,
+        config.digit,
+        len(loader.dataset),
+        n_iterations,
+        config.s0 + 1,
+        config.s1 + 1,
+        device,
     )
 
     discretization_schedule = ImprovedDiscretizationSchedule(
@@ -336,8 +355,14 @@ def train(config: TrainConfig) -> None:
 
             optimizer.zero_grad()
             loss = improved_consistency_training_loss(
-                cm, process, x, discretization_schedule, iteration, config.eps,
-                config.p_mean, config.p_std,
+                cm,
+                process,
+                x,
+                discretization_schedule,
+                iteration,
+                config.eps,
+                config.p_mean,
+                config.p_std,
             )
             loss.backward()
             if config.grad_clip > 0:
@@ -356,24 +381,35 @@ def train(config: TrainConfig) -> None:
 
             if (iteration + 1) % config.log_every == 0:
                 done = iteration + 1 - start_iteration
-                eta_min = (time.perf_counter() - run_start) / done * (n_iterations - iteration - 1) / 60
+                eta_min = (
+                    (time.perf_counter() - run_start)
+                    / done
+                    * (n_iterations - iteration - 1)
+                    / 60
+                )
                 logger.info(
                     "[%d/%d] N=%d - avg loss (last %d): %.4f | ETA %.0f min",
-                    iteration + 1, n_iterations,
+                    iteration + 1,
+                    n_iterations,
                     discretization_schedule(iteration),
-                    config.log_every, running_loss / config.log_every, eta_min,
+                    config.log_every,
+                    running_loss / config.log_every,
+                    eta_min,
                 )
                 running_loss = 0.0
 
             if iteration > 0 and iteration % config.checkpoint_every == 0:
-                save_checkpoint(config, cm, cm_sample, optimizer, iteration, n_iterations)
+                save_checkpoint(
+                    config, cm, cm_sample, optimizer, iteration, n_iterations
+                )
                 logger.info("Checkpoint saved at iteration %d", iteration)
     except KeyboardInterrupt:
         if last_done >= start_iteration:
             save_checkpoint(config, cm, cm_sample, optimizer, last_done, n_iterations)
         logger.warning(
             "Interrupted at iteration %d/%d: state saved, continue with --resume",
-            last_done + 1, n_iterations,
+            last_done + 1,
+            n_iterations,
         )
         return
 
@@ -382,7 +418,9 @@ def train(config: TrainConfig) -> None:
     save_checkpoint(config, cm, cm_sample, optimizer, n_iterations - 1, n_iterations)
     logger.info(
         "Training finished (%d/%d). Consistency model (sampling EMA) saved to %s",
-        n_iterations, n_iterations, config.checkpoint_path,
+        n_iterations,
+        n_iterations,
+        config.checkpoint_path,
     )
 
 

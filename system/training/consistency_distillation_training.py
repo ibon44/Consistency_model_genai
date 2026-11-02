@@ -64,13 +64,11 @@ import sys
 from dataclasses import dataclass
 from typing import Iterator, Literal, Optional
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import numpy as np
 import torch
 import torch.optim as optim
-from torch.utils.data import DataLoader
-
 from consistency.distances import pseudo_huber_distance, squared_l2_distance
 from consistency.distillation import consistency_distillation_loss
 from consistency.schedules import (
@@ -79,14 +77,15 @@ from consistency.schedules import (
     EMADecaySchedule,
 )
 from consistency.teachers import RectifiedFlowTeacherAdapter, VETeacherAdapter
-from data import get_dataloader
 from diffusion.ve import VarianceExplodingDiffusion
 from flow_matching.rectified_flow import RectifiedFlow
 from models.consistency_wrapper import ConsistencyWrapper
 from models.score_unet import ScoreNet
 from models.velocity_unet import VelocityNet
+from torch.utils.data import DataLoader
 from utils import get_device, get_logger, set_seed
 
+from data import get_dataloader
 
 # ============================== CONFIG ==============================
 TEACHER: Literal["ve", "rf"] = "ve"
@@ -95,10 +94,12 @@ DIGIT: Optional[int] = None
 BATCH_SIZE = 64
 N_ITERATIONS = 40000
 LEARNING_RATE = 4.0e-4
-SIGMA = 25.0             # must match the VE teacher's own training sigma
-SIGMA_NOISE = 1.0        # must match the RF teacher's own training sigma_noise
-SIGMA_DATA = 0.5         # std of MNIST in [-1, 1], used by ConsistencyWrapper
-EPS = 1.0e-5             # boundary time, shared by teacher adapter + wrapper
+SIGMA = 25.0  # must match the VE teacher's own training sigma
+SIGMA_NOISE = 1.0  # must match the RF teacher's own training sigma_noise
+SIGMA_DATA = (
+    0.5  # value of Song et al., used by ConsistencyWrapper (real MNIST std: ~0.62)
+)
+EPS = 1.0e-5  # boundary time, shared by teacher adapter + wrapper
 SEED = 42
 LOG_EVERY_N_BATCHES = 100
 CHECKPOINT_EVERY = 1000
@@ -120,9 +121,9 @@ DISTANCE_FNS = {"huber": pseudo_huber_distance, "l2": squared_l2_distance}
 # "fixed": paper's CD recipe (constant N and mu). "curriculum": CT-style
 # N(k)/mu(k) from consistency/schedules.py.
 SCHEDULE: Literal["fixed", "curriculum"] = "fixed"
-N_SCALES = 150           # dense grid: the net must see (almost) every t, see docstring
-TARGET_EMA_RATE = 0.95   # fixed mu for the target network
-SAMPLE_EMA_RATE = 0.9999 # separate EMA of the online model, used for sampling
+N_SCALES = 150  # dense grid: the net must see (almost) every t, see docstring
+TARGET_EMA_RATE = 0.95  # fixed mu for the target network
+SAMPLE_EMA_RATE = 0.9999  # separate EMA of the online model, used for sampling
 # ======================================================================
 
 
@@ -163,9 +164,7 @@ class TrainConfig:
         if self.teacher_checkpoint is not None:
             return self.teacher_checkpoint
         suffix = "_ema" if self.teacher == "rf" and not self.teacher_tag else ""
-        return os.path.join(
-            self.checkpoint_dir, f"{self.teacher_run_name}{suffix}.pth"
-        )
+        return os.path.join(self.checkpoint_dir, f"{self.teacher_run_name}{suffix}.pth")
 
     @property
     def run_name(self) -> str:
@@ -186,8 +185,10 @@ def parse_args() -> TrainConfig:
     """Parses CLI overrides for the CONFIG block above."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--teacher", choices=["ve", "rf"], default=TEACHER,
-        help="Which pretrained teacher to distill from."
+        "--teacher",
+        choices=["ve", "rf"],
+        default=TEACHER,
+        help="Which pretrained teacher to distill from.",
     )
     parser.add_argument("--digit", type=int, default=DIGIT)
     parser.add_argument("--batch-size", type=int, default=BATCH_SIZE)
@@ -197,36 +198,46 @@ def parse_args() -> TrainConfig:
     parser.add_argument("--sigma-noise", type=float, default=SIGMA_NOISE)
     parser.add_argument("--sigma-data", type=float, default=SIGMA_DATA)
     parser.add_argument(
-        "--teacher-checkpoint", default=TEACHER_CHECKPOINT,
-        help="Path to the teacher weights (default: see TEACHER_CHECKPOINT)."
+        "--teacher-checkpoint",
+        default=TEACHER_CHECKPOINT,
+        help="Path to the teacher weights (default: see TEACHER_CHECKPOINT).",
     )
     parser.add_argument("--seed", type=int, default=SEED)
     parser.add_argument("--checkpoint-every", type=int, default=CHECKPOINT_EVERY)
     parser.add_argument(
-        "--resume", action="store_true",
-        help="Resume from <checkpoint_dir>/<run_name>_resume.pth if it exists."
+        "--resume",
+        action="store_true",
+        help="Resume from <checkpoint_dir>/<run_name>_resume.pth if it exists.",
     )
     parser.add_argument(
-        "--distance", choices=["huber", "l2"], default=DISTANCE,
-        help="Distance d(x,y) for the distillation loss (see consistency/distances.py)."
+        "--distance",
+        choices=["huber", "l2"],
+        default=DISTANCE,
+        help="Distance d(x,y) for the distillation loss (see consistency/distances.py).",
     )
     parser.add_argument(
-        "--schedule", choices=["fixed", "curriculum"], default=SCHEDULE,
-        help="fixed N/mu (paper's CD recipe) or the CT-style N(k)/mu(k) curriculum."
+        "--schedule",
+        choices=["fixed", "curriculum"],
+        default=SCHEDULE,
+        help="fixed N/mu (paper's CD recipe) or the CT-style N(k)/mu(k) curriculum.",
     )
     parser.add_argument(
-        "--n-scales", type=int, default=N_SCALES,
-        help="Number of teacher discretization points N for --schedule fixed."
+        "--n-scales",
+        type=int,
+        default=N_SCALES,
+        help="Number of teacher discretization points N for --schedule fixed.",
     )
     parser.add_argument(
-        "--tag", default=None,
+        "--tag",
+        default=None,
         help="Optional suffix for the run name, e.g. --tag noema saves "
-             "<checkpoint_dir>/mnist_all_cm_rf_noema.pth."
+        "<checkpoint_dir>/mnist_all_cm_rf_noema.pth.",
     )
     parser.add_argument(
-        "--teacher-tag", default=None,
+        "--teacher-tag",
+        default=None,
         help="Suffix of the teacher checkpoint, e.g. --teacher-tag ema loads "
-             "checkpoints/mnist_all_ve_ema.pth."
+        "checkpoints/mnist_all_ve_ema.pth.",
     )
     args = parser.parse_args()
     return TrainConfig(
@@ -291,9 +302,7 @@ def build_teacher(config: TrainConfig, device: torch.device):
     return teacher, process
 
 
-def build_consistency_models(
-    config: TrainConfig, process, device: torch.device
-):
+def build_consistency_models(config: TrainConfig, process, device: torch.device):
     """Builds the online consistency model and its two frozen EMA copies.
 
     All wrap a *raw* backbone (no marginal_prob_std scaling -- that's
@@ -381,8 +390,11 @@ def train(config: TrainConfig) -> None:
     loader = build_dataloader(config)
     logger.info(
         "Distilling '%s' -> '%s' | digit=%s | images=%d | device=%s",
-        config.teacher_checkpoint_path, config.run_name,
-        config.digit, len(loader.dataset), device,
+        config.teacher_checkpoint_path,
+        config.run_name,
+        config.digit,
+        len(loader.dataset),
+        device,
     )
 
     teacher, process = build_teacher(config, device)
@@ -398,7 +410,8 @@ def train(config: TrainConfig) -> None:
         ema_schedule = EMADecaySchedule(discretization_schedule)
     logger.info(
         "distance=%s | schedule=%s (N=%s) | sample EMA=%s",
-        config.distance, config.schedule,
+        config.distance,
+        config.schedule,
         config.n_scales if config.schedule == "fixed" else "curriculum",
         config.sample_ema_rate,
     )
@@ -423,7 +436,8 @@ def train(config: TrainConfig) -> None:
             set_rng_state(checkpoint["rng_state"])
         logger.info(
             "Resumed from %s at iteration %d",
-            config.resume_checkpoint_path, start_iteration,
+            config.resume_checkpoint_path,
+            start_iteration,
         )
     elif config.resume:
         logger.warning(
@@ -446,7 +460,12 @@ def train(config: TrainConfig) -> None:
 
         optimizer.zero_grad()
         loss = consistency_distillation_loss(
-            cm, cm_target, teacher, x, discretization_schedule, iteration,
+            cm,
+            cm_target,
+            teacher,
+            x,
+            discretization_schedule,
+            iteration,
             distance_fn=distance_fn,
         )
         loss.backward()
@@ -457,7 +476,8 @@ def train(config: TrainConfig) -> None:
         # Warm-up so early checkpoints aren't dominated by the random
         # init (a plain 0.9999 EMA needs ~10k steps to forget it).
         update_ema(
-            cm_sample, cm,
+            cm_sample,
+            cm,
             min(config.sample_ema_rate, (1 + iteration) / (10 + iteration)),
         )
 
@@ -467,9 +487,12 @@ def train(config: TrainConfig) -> None:
         if (iteration + 1) % config.log_every == 0:
             logger.info(
                 "[%d/%d] N=%d mu=%.5f - avg loss (last %d): %.4f",
-                iteration + 1, config.n_iterations,
-                discretization_schedule(iteration), mu,
-                window_size, running_loss / window_size,
+                iteration + 1,
+                config.n_iterations,
+                discretization_schedule(iteration),
+                mu,
+                window_size,
+                running_loss / window_size,
             )
             running_loss = 0.0
             window_size = 0
@@ -495,7 +518,8 @@ def train(config: TrainConfig) -> None:
     if window_size > 0:
         logger.info(
             "Final avg loss (last %d iters window): %.4f",
-            window_size, running_loss / window_size,
+            window_size,
+            running_loss / window_size,
         )
 
     torch.save(cm_sample.state_dict(), config.checkpoint_path)

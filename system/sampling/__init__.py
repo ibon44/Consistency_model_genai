@@ -16,11 +16,11 @@ License:
 """
 
 __all__ = [
+    "ConsistencySampler",
     "EulerMaruyama",
     "PredictorCorrector",
     "ProbabilityFlow",
     "RectifiedFlowSampler",
-    "ConsistencySampler",
 ]
 
 from .consistency_sampler import ConsistencySampler

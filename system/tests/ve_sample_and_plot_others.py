@@ -43,20 +43,18 @@ License:
 import os
 import sys
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from typing import List
 
 import matplotlib.pyplot as plt
 import torch
-from torch import Tensor
-
 from diffusion.ve import VarianceExplodingDiffusion
 from models.score_unet import ScoreNet
 from sampling.predictor_corrector import PredictorCorrector
 from sampling.probability_flow import ProbabilityFlow
+from torch import Tensor
 from utils import get_device
-
 
 # ============================== CONFIG ==============================
 CHECKPOINT_PATH = "./checkpoints/mnist_all_ve_ema.pth"
@@ -105,9 +103,7 @@ def main() -> None:
 
     diffusion_process = VarianceExplodingDiffusion()
     score_model = ScoreNet(marginal_prob_std=diffusion_process.sigma_t).to(device)
-    score_model.load_state_dict(
-        torch.load(CHECKPOINT_PATH, map_location=device)
-    )
+    score_model.load_state_dict(torch.load(CHECKPOINT_PATH, map_location=device))
     score_model.eval()
 
     shape = (N_IMAGES, 1, 28, 28)
@@ -130,7 +126,9 @@ def main() -> None:
 
     # Probability Flow ODE (deterministic): already rescaled to [0, 1].
     torch.manual_seed(SEED)
-    pf_sampler = ProbabilityFlow(process=diffusion_process, eps=PF_EPS, method=PF_METHOD)
+    pf_sampler = ProbabilityFlow(
+        process=diffusion_process, eps=PF_EPS, method=PF_METHOD
+    )
     _, pf_samples = pf_sampler.sample(shape, score_model=score_model, device=device)
     columns.append(pf_samples)
     column_titles.append(f"Probability Flow\n({PF_METHOD})")

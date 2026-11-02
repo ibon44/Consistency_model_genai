@@ -25,9 +25,7 @@ import torch
 
 
 def plot_image_comparison(
-    images: torch.Tensor,
-    n_images: int = 3,
-    figsize: Tuple[int, int] = (15, 4)
+    images: torch.Tensor, n_images: int = 3, figsize: Tuple[int, int] = (15, 4)
 ) -> None:
     """Plots the initial and final images for comparison.
 
@@ -42,16 +40,14 @@ def plot_image_comparison(
         None. Displays the plot.
     """
     # Creating subplots with 2 columns (initial and final)
-    _, axes = plt.subplots(
-        n_images, 2, figsize=figsize
-    )
+    _, axes = plt.subplots(n_images, 2, figsize=figsize)
 
     # Column titles
     titles = ["Initial", "Final"]
-    
+
     # Determine if grayscale based on number of channels
     num_channels = images.shape[1]
-    is_grayscale = (num_channels == 1)
+    is_grayscale = num_channels == 1
 
     # Looping through each image
     for i in range(n_images):
@@ -60,36 +56,34 @@ def plot_image_comparison(
                 # For grayscale, use only first channel
                 img = images[i, 0, :, :, j].cpu().numpy()
                 normalized_img = (img + 1) / 2
-                
+
                 ax = axes[i][j] if n_images > 1 else axes[j]
                 ax.imshow(normalized_img, cmap="gray")
             else:
                 # For color images, use all channels
                 img = images[i, :, :, :, j].cpu().numpy()
-                
+
                 # Transpose to (H, W, C) format for proper display
                 img = np.transpose(img, (1, 2, 0))
 
                 # Normalize the image from [-1, 1] to [0, 1]
                 img = (img + 1) / 2
-                
+
                 # Ensure the image is in range [0, 1] to avoid display issues
                 img = np.clip(img, 0, 1)
 
                 ax = axes[i][j] if n_images > 1 else axes[j]
                 ax.imshow(img)
-            
+
             ax.axis("off")
-            
+
             # Set titles for columns on the first row only
             if i == 0:
                 ax.set_title(titles[j])
-            
+
     plt.tight_layout()
     plt.show()
 
-
-import matplotlib.pyplot as plt
 
 # def plot_image_evolution(images, n_images=3, n_intermediate_steps=None, figsize=(15, 4)):
 #     if n_intermediate_steps is None:
@@ -108,7 +102,10 @@ import matplotlib.pyplot as plt
 #     plt.tight_layout()
 #     plt.show()
 
-def plot_image_evolution(images, n_images=3, n_intermediate_steps=None, figsize=(15, 4)):
+
+def plot_image_evolution(
+    images, n_images=3, n_intermediate_steps=None, figsize=(15, 4)
+):
     if n_intermediate_steps is None:
         n_intermediate_steps = [0, -1]
 
@@ -122,7 +119,7 @@ def plot_image_evolution(images, n_images=3, n_intermediate_steps=None, figsize=
                 # Imagen en escala de grises
                 img = img[0]  # (H, W)
                 ax = axes[i][j] if n_images > 1 else axes[j]
-                ax.imshow((img + 1) / 2, cmap='gray')
+                ax.imshow((img + 1) / 2, cmap="gray")
             else:
                 # Imagen RGB
                 img = img.transpose(1, 2, 0)  # (C, H, W) -> (H, W, C)

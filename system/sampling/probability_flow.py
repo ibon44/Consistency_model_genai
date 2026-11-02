@@ -17,14 +17,12 @@ License:
     Proprietary. All rights reserved.
 """
 
-from typing import Any, Optional, Tuple
+from typing import Any, Tuple
 
 import numpy as np
 import torch
 from scipy import integrate
 from torch import Tensor
-
-from diffusion.base import DiffusionProcess
 
 from .base import Sampler
 
@@ -35,8 +33,8 @@ class ProbabilityFlow(Sampler):
         process: Any,
         atol: float = 1e-5,
         rtol: float = 1e-5,
-        method: str = 'RK45',
-        eps: float = 1e-3
+        method: str = "RK45",
+        eps: float = 1e-3,
     ) -> None:
         super().__init__(process)
         self.atol = atol
@@ -48,8 +46,8 @@ class ProbabilityFlow(Sampler):
         self,
         shape: Tuple[int, ...],
         score_model: Any,
-        device: str = 'cpu',
-        gamma: float = 1.0
+        device: str = "cpu",
+        gamma: float = 1.0,
     ) -> Tensor:
         """Samples by solving the probability flow ODE.
 
@@ -83,7 +81,7 @@ class ProbabilityFlow(Sampler):
             with torch.no_grad():
                 score = score_model(x, t_tensor)
 
-            dx_dt = drift - 0.5 * (diffusion ** 2) * (gamma * score)
+            dx_dt = drift - 0.5 * (diffusion**2) * (gamma * score)
 
             return dx_dt.detach().cpu().numpy().flatten()
 
@@ -93,24 +91,19 @@ class ProbabilityFlow(Sampler):
         x_init = x_T.detach().cpu().numpy().flatten()
 
         solution = integrate.solve_ivp(
-            ode_func,
-            t_span,
-            x_init,
-            method=self.method,
-            atol=self.atol,
-            rtol=self.rtol
+            ode_func, t_span, x_init, method=self.method, atol=self.atol, rtol=self.rtol
         )
 
         # Solution at t=eps, still carrying the process' mean scaling
         # mu_t(x_0, eps) = E[x_eps | x_0].
         x_eps_flat = solution.y[:, -1]
-        x_eps = torch.tensor(x_eps_flat, dtype=torch.float32, device=device).reshape(shape)
+        x_eps = torch.tensor(x_eps_flat, dtype=torch.float32, device=device).reshape(
+            shape
+        )
 
         # Undo the mean scaling to recover x_0 ~= x_eps / mu_coefficient(eps).
         t_eps_tensor = torch.full((shape[0],), self.eps, device=device)
-        mu_coeff = self.process.mu_t(
-            torch.ones_like(x_eps), t_eps_tensor
-        )
+        mu_coeff = self.process.mu_t(torch.ones_like(x_eps), t_eps_tensor)
         x_0 = x_eps / mu_coeff
 
         # Revert the [-1, 1] normalization to [0, 1] for visualization.

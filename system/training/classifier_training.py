@@ -30,17 +30,16 @@ import os
 import sys
 from dataclasses import dataclass
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader
-
-from data import get_dataloader
 from evaluation.classifier import MNISTClassifier
+from torch.utils.data import DataLoader
 from utils import get_device, get_logger, set_seed
 
+from data import get_dataloader
 
 # ============================== CONFIG ==============================
 BATCH_SIZE = 128
@@ -89,10 +88,14 @@ def parse_args() -> TrainConfig:
 def build_dataloaders(config: TrainConfig) -> tuple[DataLoader, DataLoader]:
     """Loads the MNIST train and test splits (unfiltered, all digits)."""
     train_loader = get_dataloader(
-        batch_size=config.batch_size, train=True, data_dir=config.data_dir,
+        batch_size=config.batch_size,
+        train=True,
+        data_dir=config.data_dir,
     )
     test_loader = get_dataloader(
-        batch_size=config.batch_size, train=False, data_dir=config.data_dir,
+        batch_size=config.batch_size,
+        train=False,
+        data_dir=config.data_dir,
     )
     return train_loader, test_loader
 
@@ -147,7 +150,9 @@ def train(config: TrainConfig) -> None:
     train_loader, test_loader = build_dataloaders(config)
     logger.info(
         "Training run '%s' | images=%d | device=%s",
-        config.run_name, len(train_loader.dataset), device,
+        config.run_name,
+        len(train_loader.dataset),
+        device,
     )
 
     model = MNISTClassifier().to(device)
@@ -171,20 +176,27 @@ def train(config: TrainConfig) -> None:
             if i % config.log_every == 0:
                 logger.info(
                     "[%d/%d] batch %d - loss: %.4f",
-                    epoch + 1, config.n_epochs, i, loss.item(),
+                    epoch + 1,
+                    config.n_epochs,
+                    i,
+                    loss.item(),
                 )
 
         test_loss, test_acc = evaluate(model, test_loader, device)
         logger.info(
             "Epoch %d - train loss: %.4f | test loss: %.4f | test acc: %.2f%%",
-            epoch + 1, running_loss / len(train_loader), test_loss, 100 * test_acc,
+            epoch + 1,
+            running_loss / len(train_loader),
+            test_loss,
+            100 * test_acc,
         )
 
     os.makedirs(config.checkpoint_dir, exist_ok=True)
     torch.save(model.state_dict(), config.checkpoint_path)
     logger.info(
         "Classifier saved to %s (final test acc: %.2f%%)",
-        config.checkpoint_path, 100 * test_acc,
+        config.checkpoint_path,
+        100 * test_acc,
     )
 
 

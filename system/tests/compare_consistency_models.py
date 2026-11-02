@@ -35,13 +35,12 @@ License:
 import os
 import sys
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from typing import List, NamedTuple
 
 import matplotlib.pyplot as plt
 import torch
-
 from consistency.teachers import VETeacherAdapter
 from diffusion.ve import VarianceExplodingDiffusion
 from models.consistency_wrapper import ConsistencyWrapper
@@ -57,13 +56,13 @@ class ModelSpec(NamedTuple):
 
 # ============================== CONFIG ==============================
 MODELS: List[ModelSpec] = [
-    ModelSpec("CD (teacher)", "./checkpoints/mnist_all_cm_ve.pth"),
+    ModelSpec("CD (teacher)", "./checkpoints/mnist_all_cm_ve_ema.pth"),
     ModelSpec("CT (no teacher)", "./checkpoints/mnist_all_cm_ve_ct.pth"),
 ]
 TEACHER_PATH = "./checkpoints/mnist_all_ve_ema.pth"
 TEACHER_ODE_STEPS = 200  # Heun steps for the reference teacher solution
-N_IMAGES = 12            # rows plotted
-N_METRIC = 128           # samples used for the 1-step MSE table
+N_IMAGES = 12  # rows plotted
+N_METRIC = 128  # samples used for the 1-step MSE table
 STEP_COUNTS = [1, 2, 4]
 SIGMA = 25.0
 SIGMA_DATA = 0.5
@@ -76,8 +75,10 @@ def load_consistency_model(
     spec: ModelSpec, process: VarianceExplodingDiffusion, device
 ) -> ConsistencyWrapper:
     cm = ConsistencyWrapper(
-        backbone=ScoreNet(marginal_prob_std=None), sigma_data=SIGMA_DATA,
-        eps=EPS, sigma_t=process.sigma_t,
+        backbone=ScoreNet(marginal_prob_std=None),
+        sigma_data=SIGMA_DATA,
+        eps=EPS,
+        sigma_t=process.sigma_t,
     ).to(device)
     cm.load_state_dict(torch.load(spec.path, map_location=device))
     cm.eval()
@@ -99,9 +100,7 @@ def teacher_ode_solution(
     times = teacher.time_grid(n_steps + 1).flip(0).to(x_T.device)
     x = x_T
     for t, t_prev in zip(times[:-1], times[1:]):
-        x = teacher.ode_step(
-            x, t.expand(x.shape[0]), t_prev.expand(x.shape[0])
-        )
+        x = teacher.ode_step(x, t.expand(x.shape[0]), t_prev.expand(x.shape[0]))
     return x.clamp(-1.0, 1.0)
 
 
@@ -149,10 +148,15 @@ def main() -> None:
     for n_steps in STEP_COUNTS:
         intermediate_times = sampler.karras_intermediate_times(n_steps)
         for label, cm in models.items():
-            columns.append(sampler.sample(
-                x_T.shape, cm, device=device,
-                intermediate_times=intermediate_times, x_T=x_T,
-            ))
+            columns.append(
+                sampler.sample(
+                    x_T.shape,
+                    cm,
+                    device=device,
+                    intermediate_times=intermediate_times,
+                    x_T=x_T,
+                )
+            )
             labels.append(f"{n_steps}-step\n{label}")
 
     plot_grid(columns, labels, N_IMAGES)

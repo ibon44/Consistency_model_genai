@@ -16,12 +16,12 @@ License:
 
 __all__ = [
     "get_device",
+    "get_logger",
+    "plot_image_evolution",
+    "scalar",
+    "set_seed",
     "to_device",
     "to_numpy",
-    "scalar",
-    "get_logger",
-    "set_seed",
-    "plot_image_evolution"
 ]
 
 from .device import *

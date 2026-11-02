@@ -36,13 +36,11 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import matplotlib.pyplot as plt
 import torch
-
 from flow_matching import RectifiedFlow
 from sampling.consistency_sampler import ConsistencySampler
 from tests.compare_cm_rf_ema_noema import GRID_SIDE, load_cm, to_grid
 from tests.consistency_sample_and_plot_RF import build_intermediate_times
 from utils import get_device
-
 
 # ============================== CONFIG ==============================
 CM_CHECKPOINT = "./checkpoints/mnist_all_cm_rf.pth"
@@ -67,16 +65,16 @@ def main() -> None:
 
     def run(n_steps: int, tau) -> torch.Tensor:
         times = build_intermediate_times(n_steps, EPS, tau) if tau else None
-        x = sampler.sample(
-            shape, cm, device=device, intermediate_times=times, x_T=x_T
-        )
+        x = sampler.sample(shape, cm, device=device, intermediate_times=times, x_T=x_T)
         return to_grid(x)
 
     one_step_grid = run(1, None)
 
     n_cols = len(STEP_COUNTS) + 1
     _, axes = plt.subplots(
-        len(TAU_VALUES), n_cols, figsize=(4 * n_cols, 4.3 * len(TAU_VALUES)),
+        len(TAU_VALUES),
+        n_cols,
+        figsize=(4 * n_cols, 4.3 * len(TAU_VALUES)),
         squeeze=False,
     )
     for i, tau in enumerate(TAU_VALUES):
@@ -90,8 +88,16 @@ def main() -> None:
                     ax.set_title("1-step (no tau)", fontsize=12)
                 else:
                     ax.axis("off")
-                ax.text(-0.08, 0.5, f"tau_max = {tau}", ha="right", va="center",
-                        rotation=90, fontsize=13, transform=ax.transAxes)
+                ax.text(
+                    -0.08,
+                    0.5,
+                    f"tau_max = {tau}",
+                    ha="right",
+                    va="center",
+                    rotation=90,
+                    fontsize=13,
+                    transform=ax.transAxes,
+                )
                 continue
             n_steps = STEP_COUNTS[j - 1]
             ax.imshow(run(n_steps, tau), cmap="gray", vmin=0, vmax=1)

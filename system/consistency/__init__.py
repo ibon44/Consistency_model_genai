@@ -18,18 +18,18 @@ License:
 """
 
 __all__ = [
+    "consistency_distillation_loss",
+    "consistency_training_loss",
     "ConstantSchedule",
     "DiscretizationSchedule",
     "EMADecaySchedule",
     "karras_sigma_time_steps",
     "karras_time_steps",
-    "squared_l2_distance",
     "pseudo_huber_distance",
+    "RectifiedFlowTeacherAdapter",
+    "squared_l2_distance",
     "TeacherAdapter",
     "VETeacherAdapter",
-    "RectifiedFlowTeacherAdapter",
-    "consistency_distillation_loss",
-    "consistency_training_loss",
 ]
 
 from .ct_loss import consistency_training_loss

@@ -37,14 +37,12 @@ from typing import List, Optional
 
 import matplotlib.pyplot as plt
 import torch
-
 from flow_matching import RectifiedFlow
 from models.consistency_wrapper import ConsistencyWrapper
 from models.velocity_unet import VelocityNet
 from sampling.consistency_sampler import ConsistencySampler
 from sampling.rectified_flow_sampler import RectifiedFlowSampler
 from utils import get_device
-
 
 # ============================== CONFIG ==============================
 CHECKPOINT_PATH = "./checkpoints/mnist_all_cm_rf.pth"
@@ -174,9 +172,7 @@ def main() -> None:
     # Teacher reference from the same x_T. RectifiedFlowSampler returns
     # [0, 1], so map it back to [-1, 1] like the consistency columns.
     teacher = VelocityNet().to(device)
-    teacher.load_state_dict(
-        torch.load(TEACHER_CHECKPOINT_PATH, map_location=device)
-    )
+    teacher.load_state_dict(torch.load(TEACHER_CHECKPOINT_PATH, map_location=device))
     teacher.eval()
     teacher_sampler = RectifiedFlowSampler(process, n_steps=TEACHER_STEPS)
     _, x_teacher = teacher_sampler.sample(shape, teacher, device=device, x_T=x_T)

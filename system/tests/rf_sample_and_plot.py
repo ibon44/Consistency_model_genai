@@ -27,12 +27,10 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import matplotlib.pyplot as plt
 import torch
-
 from flow_matching.rectified_flow import RectifiedFlow
 from models.velocity_unet import VelocityNet
 from sampling.rectified_flow_sampler import RectifiedFlowSampler
 from utils import get_device, set_seed
-
 
 # ============================== CONFIG ==============================
 CHECKPOINT_PATH = (

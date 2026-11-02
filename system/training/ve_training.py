@@ -31,17 +31,16 @@ import sys
 from dataclasses import dataclass
 from typing import Optional
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import torch
 import torch.optim as optim
-from torch.utils.data import DataLoader
-
-from data import get_dataloader
 from diffusion.ve import VarianceExplodingDiffusion
 from models.score_unet import ScoreNet
+from torch.utils.data import DataLoader
 from utils import get_device, get_logger, set_seed
 
+from data import get_dataloader
 
 # ============================== CONFIG ==============================
 # Set DIGIT to an int in [0, 9] to train on a single MNIST digit, or to
@@ -52,9 +51,9 @@ DIGIT: Optional[int] = None
 BATCH_SIZE = 64
 N_EPOCHS = 60
 LEARNING_RATE = 1.0e-3
-SIGMA = 25.0            # VE diffusion process base standard deviation
+SIGMA = 25.0  # VE diffusion process base standard deviation
 SEED = 42
-EMA_RATE = 0.999         # EMA of the weights, used for the saved checkpoint (0 disables)
+EMA_RATE = 0.999  # EMA of the weights, used for the saved checkpoint (0 disables)
 LOG_EVERY_N_BATCHES = 100
 DATA_DIR = "./data"
 CHECKPOINT_DIR = "./checkpoints"
@@ -76,7 +75,9 @@ class TrainConfig:
 
     @property
     def run_name(self) -> str:
-        base = f"mnist_digit{self.digit}_ve" if self.digit is not None else "mnist_all_ve"
+        base = (
+            f"mnist_digit{self.digit}_ve" if self.digit is not None else "mnist_all_ve"
+        )
         return f"{base}_ema" if self.ema_rate > 0 else base
 
     @property
@@ -92,8 +93,10 @@ def parse_args() -> TrainConfig:
     """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--digit", type=int, default=DIGIT,
-        help="Train on a single MNIST digit (0-9). Omit for the whole dataset."
+        "--digit",
+        type=int,
+        default=DIGIT,
+        help="Train on a single MNIST digit (0-9). Omit for the whole dataset.",
     )
     parser.add_argument("--batch-size", type=int, default=BATCH_SIZE)
     parser.add_argument("--epochs", type=int, default=N_EPOCHS)
@@ -101,9 +104,11 @@ def parse_args() -> TrainConfig:
     parser.add_argument("--sigma", type=float, default=SIGMA)
     parser.add_argument("--seed", type=int, default=SEED)
     parser.add_argument(
-        "--ema-rate", type=float, default=EMA_RATE,
+        "--ema-rate",
+        type=float,
+        default=EMA_RATE,
         help="EMA decay of the weights saved to the checkpoint; 0 disables "
-             "EMA (and the '_ema' suffix on the checkpoint name)."
+        "EMA (and the '_ema' suffix on the checkpoint name).",
     )
     args = parser.parse_args()
     return TrainConfig(
@@ -135,7 +140,10 @@ def train(config: TrainConfig) -> None:
     loader = build_dataloader(config)
     logger.info(
         "Training run '%s' | digit=%s | images=%d | device=%s",
-        config.run_name, config.digit, len(loader.dataset), device,
+        config.run_name,
+        config.digit,
+        len(loader.dataset),
+        device,
     )
 
     diffusion_process = VarianceExplodingDiffusion(sigma=config.sigma)
@@ -175,12 +183,16 @@ def train(config: TrainConfig) -> None:
             if i % config.log_every == 0:
                 logger.info(
                     "[%d/%d] batch %d - loss: %.4f",
-                    epoch + 1, config.n_epochs, i, loss.item(),
+                    epoch + 1,
+                    config.n_epochs,
+                    i,
+                    loss.item(),
                 )
 
         logger.info(
             "Epoch %d - avg loss: %.4f",
-            epoch + 1, running_loss / len(loader),
+            epoch + 1,
+            running_loss / len(loader),
         )
 
     os.makedirs(config.checkpoint_dir, exist_ok=True)

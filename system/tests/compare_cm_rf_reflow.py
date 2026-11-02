@@ -28,7 +28,6 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import tests.compare_cm_rf_ema_noema as panels
 
-
 # ============================== CONFIG ==============================
 # label -> (consistency model checkpoint, teacher it was distilled from)
 VARIANTS = {

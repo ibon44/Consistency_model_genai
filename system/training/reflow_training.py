@@ -49,13 +49,11 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import torch
 import torch.optim as optim
-from torch.utils.data import DataLoader, TensorDataset
-
 from flow_matching.rectified_flow import RectifiedFlow
 from models.velocity_unet import VelocityNet
+from torch.utils.data import DataLoader, TensorDataset
 from training.rectified_flow_training import update_ema
 from utils import get_device, get_logger, set_seed
-
 
 # ============================== CONFIG ==============================
 # 1-RF teacher whose coupling is reflowed (EMA weights, the better one).
@@ -115,8 +113,9 @@ def parse_args() -> TrainConfig:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--teacher-checkpoint", default=TEACHER_CHECKPOINT)
     parser.add_argument(
-        "--init-checkpoint", default=INIT_CHECKPOINT,
-        help="Initial weights for the 2-RF; pass '' to train from scratch."
+        "--init-checkpoint",
+        default=INIT_CHECKPOINT,
+        help="Initial weights for the 2-RF; pass '' to train from scratch.",
     )
     parser.add_argument("--n-pairs", type=int, default=N_PAIRS)
     parser.add_argument("--pair-steps", type=int, default=PAIR_STEPS)
@@ -126,8 +125,9 @@ def parse_args() -> TrainConfig:
     parser.add_argument("--sigma-noise", type=float, default=SIGMA_NOISE)
     parser.add_argument("--seed", type=int, default=SEED)
     parser.add_argument(
-        "--pairs-name", default=PAIRS_NAME,
-        help="Pairs file name (without .pt) inside the checkpoint dir."
+        "--pairs-name",
+        default=PAIRS_NAME,
+        help="Pairs file name (without .pt) inside the checkpoint dir.",
     )
     parser.add_argument("--run-name", default=RUN_NAME)
     args = parser.parse_args()
@@ -192,7 +192,10 @@ def train(config: TrainConfig) -> None:
     else:
         logger.info(
             "Generating %d pairs with %s (%d Euler steps) | device=%s",
-            config.n_pairs, config.teacher_checkpoint, config.pair_steps, device,
+            config.n_pairs,
+            config.teacher_checkpoint,
+            config.pair_steps,
+            device,
         )
         generate_pairs(config, process, device, logger)
 
@@ -208,7 +211,10 @@ def train(config: TrainConfig) -> None:
         model.load_state_dict(torch.load(config.init_checkpoint, map_location=device))
     logger.info(
         "Reflow training '%s' | pairs=%d | init=%s | device=%s",
-        config.run_name, len(loader.dataset), config.init_checkpoint or None, device,
+        config.run_name,
+        len(loader.dataset),
+        config.init_checkpoint or None,
+        device,
     )
 
     ema_model = copy.deepcopy(model)
@@ -236,12 +242,13 @@ def train(config: TrainConfig) -> None:
             if i % config.log_every == 0:
                 logger.info(
                     "[%d/%d] batch %d - loss: %.4f",
-                    epoch + 1, config.n_epochs, i, loss.item(),
+                    epoch + 1,
+                    config.n_epochs,
+                    i,
+                    loss.item(),
                 )
 
-        logger.info(
-            "Epoch %d - avg loss: %.4f", epoch + 1, running_loss / len(loader)
-        )
+        logger.info("Epoch %d - avg loss: %.4f", epoch + 1, running_loss / len(loader))
 
         # Saved every epoch, so an interrupted run still leaves a usable 2-RF.
         torch.save(model.state_dict(), config.checkpoint_path)

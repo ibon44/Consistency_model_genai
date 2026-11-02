@@ -34,17 +34,27 @@ import json
 import os
 import sys
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from evaluation.compare import (
-    APPENDIX_ONLY, MODELS, RESULTS_DIR, Config, build_rows, plot_time_vs_n, save_table,
+    APPENDIX_ONLY,
+    MODELS,
+    RESULTS_DIR,
+    Config,
+    build_rows,
+    plot_time_vs_n,
+    save_table,
 )
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--results-dir", default=RESULTS_DIR)
-    parser.add_argument("--reference", default=os.path.join(RESULTS_DIR, "tiempos_referencia.json"))
+    parser.add_argument(
+        "--reference", default=os.path.join(RESULTS_DIR, "tiempos_referencia.json")
+    )
     args = parser.parse_args()
 
     json_path = os.path.join(args.results_dir, "resultados.json")
@@ -59,9 +69,17 @@ def main() -> None:
         kind = kind_of[entry["model"]]
         entry["timings"] = reference[kind][str(entry["steps"])]
         config = Config(
-            model=entry["model"], steps=entry["steps"], nfe=entry["nfe"], family=entry["family"],
-            prior_std=0.0, generate=None, is_teacher=kind.endswith("teacher"),
-            metrics={k: entry[k] for k in ("fd_mnist", "recognizable", "entropy", "entropy_pct")},
+            model=entry["model"],
+            steps=entry["steps"],
+            nfe=entry["nfe"],
+            family=entry["family"],
+            prior_std=0.0,
+            generate=None,
+            is_teacher=kind.endswith("teacher"),
+            metrics={
+                k: entry[k]
+                for k in ("fd_mnist", "recognizable", "entropy", "entropy_pct")
+            },
             distribution=entry["distribution"],
             timing={int(n): t for n, t in entry["timings"].items()},
         )
@@ -69,7 +87,9 @@ def main() -> None:
 
     n_max = max(results["config"]["timing_sizes"])
     rows, slowest_teacher = build_rows(results["baselines"], configs, n_max)
-    results["config"]["speedup_reference"] = {k: v.label for k, v in slowest_teacher.items()}
+    results["config"]["speedup_reference"] = {
+        k: v.label for k, v in slowest_teacher.items()
+    }
     results["config"]["timing_source"] = os.path.basename(args.reference)
 
     save_table(rows, args.results_dir)
@@ -81,7 +101,11 @@ def main() -> None:
     for spec in MODELS:
         if spec.name not in APPENDIX_ONLY:
             first_of_kind.setdefault(spec.kind, spec.name)
-    shown = [c for c, e in zip(configs, results["configs"]) if c.model == first_of_kind[kind_of[e["model"]]]]
+    shown = [
+        c
+        for c, e in zip(configs, results["configs"])
+        if c.model == first_of_kind[kind_of[e["model"]]]
+    ]
     plot_time_vs_n(shown, os.path.join(args.results_dir, "tiempo_vs_n.png"))
     print(f"Timings of {len(configs)} configurations replaced with {args.reference}")
 

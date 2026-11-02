@@ -45,14 +45,22 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import numpy as np
 import torch
+from utils import get_device, get_logger, set_seed
 
 from evaluation.classifier import MNISTClassifier
 from evaluation.compare import (
-    CLASSIFIER_PATH, MODELS, N_EVAL, N_REFERENCE, RESULTS_DIR,
-    batched, build_configs, evaluate_samples, load_real_images, load_state,
+    CLASSIFIER_PATH,
+    MODELS,
+    N_EVAL,
+    N_REFERENCE,
+    RESULTS_DIR,
+    batched,
+    build_configs,
+    evaluate_samples,
+    load_real_images,
+    load_state,
 )
 from evaluation.metrics import extract_features
-from utils import get_device, get_logger, set_seed
 
 # ============================== CONFIG ==============================
 SEEDS = [1, 2, 3, 4, 5]   # noise seeds; compare.py itself uses 42

@@ -16,11 +16,11 @@ License:
 
 __all__ = [
     "BaseScoreModel",
-    "GaussianRandomFourierFeatures",
     "Dense",
+    "ConsistencyWrapper",
+    "GaussianRandomFourierFeatures",
     "ScoreNet",
     "VelocityNet",
-    "ConsistencyWrapper",
 ]
 
 from .base import BaseScoreModel

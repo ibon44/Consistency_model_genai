@@ -33,9 +33,10 @@ License:
     Proprietary. All rights reserved.
 """
 
+from typing import Callable
+
 import torch
 import torch.nn as nn
-from typing import Callable
 
 from .schedules import karras_sigma_time_steps
 

@@ -41,9 +41,8 @@ License:
 from typing import Any, List, Optional, Tuple
 
 import torch
-from torch import Tensor
-
 from consistency.schedules import karras_sigma_time_steps
+from torch import Tensor
 
 from .base import Sampler
 
@@ -88,8 +87,12 @@ class ConsistencySampler(Sampler):
         if n_steps <= 1:
             return None
         grid = karras_sigma_time_steps(
-            n_steps + 1, self.eps, self.process.T,
-            self.process.sigma_t, self.process.sigma_inverse, rho,
+            n_steps + 1,
+            self.eps,
+            self.process.T,
+            self.process.sigma_t,
+            self.process.sigma_inverse,
+            rho,
         )
         return grid[1:-1].flip(0).tolist()
 

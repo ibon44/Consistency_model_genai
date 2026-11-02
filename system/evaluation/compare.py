@@ -78,7 +78,7 @@ Description:
 
     Run from the repository root:
         python system/evaluation/compare.py            # full run
-        python system/evaluation/compare.py --quick    # fast smoke test
+        python system/evaluation/compare.py --quick --results-dir ./results_quick  # smoke test
         python system/evaluation/reuse_timing.py       # after a full run
         python system/evaluation/seed_variance.py      # sampling variability
 
@@ -100,23 +100,16 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, NamedTuple, Optional
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-
 from consistency.teachers import VETeacherAdapter
-from data import get_dataloader
 from diffusion.ve import VarianceExplodingDiffusion
-from evaluation.classifier import MNISTClassifier
-from evaluation.metrics import (
-    confident_fraction, extract_features, fd_mnist, label_distribution,
-    label_entropy, max_label_entropy,
-)
-from evaluation.timing import benchmark_generation_time
 from flow_matching.rectified_flow import RectifiedFlow
 from models.consistency_wrapper import ConsistencyWrapper
 from models.score_unet import ScoreNet
@@ -125,9 +118,22 @@ from sampling.consistency_sampler import ConsistencySampler
 from sampling.rectified_flow_sampler import RectifiedFlowSampler
 from utils import get_device, get_logger, set_seed
 
+from data import get_dataloader
+from evaluation.classifier import MNISTClassifier
+from evaluation.metrics import (
+    confident_fraction,
+    extract_features,
+    fd_mnist,
+    label_distribution,
+    label_entropy,
+    max_label_entropy,
+)
+from evaluation.timing import benchmark_generation_time
+
 
 class ModelSpec(NamedTuple):
     """One model to evaluate: display name, kind, checkpoint and step counts."""
+
     name: str
     kind: str
     path: str
@@ -144,22 +150,70 @@ MODELS: List[ModelSpec] = [
     # "VE teacher" is the teacher of CM-VE (CD): 60 epochs, EMA weights. The
     # earlier teacher without EMA and the CD distilled from it (first CD run)
     # are kept as an ablation (see APPENDIX_ONLY).
-    ModelSpec("VE teacher", "ve_teacher", "./checkpoints/mnist_all_ve_ema.pth", [5, 10, 50]),
-    ModelSpec("VE teacher (no EMA)", "ve_teacher", "./checkpoints/mnist_all_ve.pth", [5, 10, 50]),
-    ModelSpec("CM-VE (CD, no-EMA teacher)", "cm_ve", "./checkpoints/mnist_all_cm_ve.pth", [1, 2, 4]),
-    ModelSpec("CM-VE (CT v1)", "cm_ve", "./checkpoints/mnist_all_cm_ve_ct.pth", [1, 2, 4]),
-    ModelSpec("CM-VE (iCT v1, stage 1)", "cm_ve", "./checkpoints/mnist_all_cm_ve_ict.pth", [1, 2, 4]),
-    ModelSpec("CM-VE (iCT v1)", "cm_ve", "./checkpoints/mnist_all_cm_ve_ict_n640.pth", [1, 2, 4]),
-    ModelSpec("RF teacher (1-RF)", "rf_teacher", "./checkpoints/mnist_all_rf_ema.pth", [1, 10, 50]),
-    ModelSpec("RF teacher (2-RF)", "rf_teacher", "./checkpoints/mnist_all_2rf_ema.pth", [1, 10, 50]),
+    ModelSpec(
+        "VE teacher", "ve_teacher", "./checkpoints/mnist_all_ve_ema.pth", [5, 10, 50]
+    ),
+    ModelSpec(
+        "VE teacher (no EMA)",
+        "ve_teacher",
+        "./checkpoints/mnist_all_ve.pth",
+        [5, 10, 50],
+    ),
+    ModelSpec(
+        "CM-VE (CD, no-EMA teacher)",
+        "cm_ve",
+        "./checkpoints/mnist_all_cm_ve.pth",
+        [1, 2, 4],
+    ),
+    ModelSpec(
+        "CM-VE (CT v1)", "cm_ve", "./checkpoints/mnist_all_cm_ve_ct.pth", [1, 2, 4]
+    ),
+    ModelSpec(
+        "CM-VE (iCT v1, stage 1)",
+        "cm_ve",
+        "./checkpoints/mnist_all_cm_ve_ict.pth",
+        [1, 2, 4],
+    ),
+    ModelSpec(
+        "CM-VE (iCT v1)",
+        "cm_ve",
+        "./checkpoints/mnist_all_cm_ve_ict_n640.pth",
+        [1, 2, 4],
+    ),
+    ModelSpec(
+        "RF teacher (1-RF)",
+        "rf_teacher",
+        "./checkpoints/mnist_all_rf_ema.pth",
+        [1, 10, 50],
+    ),
+    ModelSpec(
+        "RF teacher (2-RF)",
+        "rf_teacher",
+        "./checkpoints/mnist_all_2rf_ema.pth",
+        [1, 10, 50],
+    ),
     ModelSpec("CM-RF (CD)", "cm_rf", "./checkpoints/mnist_all_cm_rf.pth", [1, 2, 4]),
-    ModelSpec("CM-RF (CD, reflow)", "cm_rf", "./checkpoints/mnist_all_cm_rf_reflow.pth", [1, 2, 4]),
+    ModelSpec(
+        "CM-RF (CD, reflow)",
+        "cm_rf",
+        "./checkpoints/mnist_all_cm_rf_reflow.pth",
+        [1, 2, 4],
+    ),
     # Building a network and multistep sampling both draw from the global RNG, so
     # adding or removing any model here changes the multistep rows of all the others
     # (by less than the noise of Table 5). One-step and teacher rows do not change.
-    ModelSpec("CM-VE (CT v2)", "cm_ve", "./checkpoints/mnist_all_cm_ve_ct_v2.pth", [1, 2, 4]),
-    ModelSpec("CM-VE (iCT v2)", "cm_ve", "./checkpoints/mnist_all_cm_ve_ict_40k_ema_lrconst.pth", [1, 2, 4]),
-    ModelSpec("CM-VE (CD)", "cm_ve", "./checkpoints/mnist_all_cm_ve_ema.pth", [1, 2, 4]),
+    ModelSpec(
+        "CM-VE (CT v2)", "cm_ve", "./checkpoints/mnist_all_cm_ve_ct_v2.pth", [1, 2, 4]
+    ),
+    ModelSpec(
+        "CM-VE (iCT v2)",
+        "cm_ve",
+        "./checkpoints/mnist_all_cm_ve_ict_40k_ema_lrconst.pth",
+        [1, 2, 4],
+    ),
+    ModelSpec(
+        "CM-VE (CD)", "cm_ve", "./checkpoints/mnist_all_cm_ve_ema.pth", [1, 2, 4]
+    ),
 ]
 # Models shown only in the appendix tables of the report (and not in the main
 # figure): earlier runs and ablations kept to show the progression.
@@ -171,7 +225,8 @@ APPENDIX_ONLY = ABLATION_ONLY | {"CM-VE (iCT v1, stage 1)", "CM-VE (iCT v1)"}
 # Columns (model, steps, label) of the EMA vs no-EMA teacher comparison grid.
 NOEMA_GRID = [
     ("VE teacher", 50, "EMA teacher · 50 steps"),
-    ("CM-VE (CD)", 1, "CD from EMA · 1 step"), ("CM-VE (CD)", 2, "CD from EMA · 2 steps"),
+    ("CM-VE (CD)", 1, "CD from EMA · 1 step"),
+    ("CM-VE (CD)", 2, "CD from EMA · 2 steps"),
     ("CM-VE (CD)", 4, "CD from EMA · 4 steps"),
     ("VE teacher (no EMA)", 50, "no-EMA teacher · 50 steps"),
     ("CM-VE (CD, no-EMA teacher)", 1, "CD from no-EMA · 1 step"),
@@ -181,14 +236,30 @@ NOEMA_GRID = [
 # Columns (model, steps) of the compact 3-row grids muestras_<family>_3filas.png
 # used in the report; a column whose checkpoint is missing is skipped.
 GRID_3ROWS: Dict[str, List[tuple]] = {
-    "VE": [("VE teacher", 50),
-           ("CM-VE (CD)", 1), ("CM-VE (CD)", 2), ("CM-VE (CD)", 4),
-           ("CM-VE (CT v1)", 4), ("CM-VE (CT v2)", 1), ("CM-VE (CT v2)", 4),
-           ("CM-VE (iCT v2)", 1), ("CM-VE (iCT v2)", 2), ("CM-VE (iCT v2)", 4)],
-    "RF": [("RF teacher (1-RF)", 1), ("RF teacher (1-RF)", 50),
-           ("RF teacher (2-RF)", 1), ("RF teacher (2-RF)", 50),
-           ("CM-RF (CD)", 1), ("CM-RF (CD)", 2), ("CM-RF (CD)", 4),
-           ("CM-RF (CD, reflow)", 1), ("CM-RF (CD, reflow)", 2), ("CM-RF (CD, reflow)", 4)],
+    "VE": [
+        ("VE teacher", 50),
+        ("CM-VE (CD)", 1),
+        ("CM-VE (CD)", 2),
+        ("CM-VE (CD)", 4),
+        ("CM-VE (CT v1)", 4),
+        ("CM-VE (CT v2)", 1),
+        ("CM-VE (CT v2)", 4),
+        ("CM-VE (iCT v2)", 1),
+        ("CM-VE (iCT v2)", 2),
+        ("CM-VE (iCT v2)", 4),
+    ],
+    "RF": [
+        ("RF teacher (1-RF)", 1),
+        ("RF teacher (1-RF)", 50),
+        ("RF teacher (2-RF)", 1),
+        ("RF teacher (2-RF)", 50),
+        ("CM-RF (CD)", 1),
+        ("CM-RF (CD)", 2),
+        ("CM-RF (CD)", 4),
+        ("CM-RF (CD, reflow)", 1),
+        ("CM-RF (CD, reflow)", 2),
+        ("CM-RF (CD, reflow)", 4),
+    ],
 }
 CLASSIFIER_PATH = "./checkpoints/mnist_classifier.pth"
 # Outputs read by the report (memoria/memoria.tex).
@@ -231,6 +302,7 @@ class Config:
     the diffusion/RF teachers: they are drawn dashed in the figures and
     the slowest one of each family is the reference for the speed-up.
     """
+
     model: str
     steps: int
     nfe: int
@@ -247,25 +319,37 @@ class Config:
         """Short label used in tables and figures, e.g. 'CM-VE (CD) · 2 steps'."""
         return f"{self.model} · {self.steps} step{'s' if self.steps != 1 else ''}"
 
-    def noise(self, n: int, generator: Optional[torch.Generator] = None) -> torch.Tensor:
+    def noise(
+        self, n: int, generator: Optional[torch.Generator] = None
+    ) -> torch.Tensor:
         """Draws `n` initial noise images for this configuration's process."""
         return torch.randn(n, *IMAGE_SHAPE, generator=generator) * self.prior_std
 
 
 def parse_args() -> argparse.Namespace:
     """Parses CLI overrides. --quick shrinks everything for a smoke test."""
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--results-dir", default=RESULTS_DIR)
     parser.add_argument("--n-eval", type=int, default=N_EVAL)
-    parser.add_argument("--no-timing", action="store_true", help="Skip the timing benchmark.")
-    parser.add_argument("--quick", action="store_true", help="Few samples and tiny timings, to check the script runs.")
+    parser.add_argument(
+        "--no-timing", action="store_true", help="Skip the timing benchmark."
+    )
+    parser.add_argument(
+        "--quick",
+        action="store_true",
+        help="Few samples and tiny timings, to check the script runs.",
+    )
     args = parser.parse_args()
     if args.quick:
         args.n_eval = 200
     return args
 
 
-def batched(fn: Callable[[torch.Tensor], torch.Tensor], x_T: torch.Tensor) -> torch.Tensor:
+def batched(
+    fn: Callable[[torch.Tensor], torch.Tensor], x_T: torch.Tensor
+) -> torch.Tensor:
     """Applies a generator to `x_T` in chunks of GEN_BATCH and concatenates.
 
     Keeps memory bounded when generating thousands of samples on CPU.
@@ -275,7 +359,9 @@ def batched(fn: Callable[[torch.Tensor], torch.Tensor], x_T: torch.Tensor) -> to
         return torch.cat([fn(chunk) for chunk in x_T.split(GEN_BATCH)]).clamp(-1.0, 1.0)
 
 
-def load_state(module: torch.nn.Module, path: str, device: torch.device) -> torch.nn.Module:
+def load_state(
+    module: torch.nn.Module, path: str, device: torch.device
+) -> torch.nn.Module:
     """Loads a state dict into `module`, moves it to `device` and sets eval mode."""
     module.load_state_dict(torch.load(path, map_location=device))
     return module.to(device).eval()
@@ -309,30 +395,46 @@ def build_configs(spec: ModelSpec, device: torch.device) -> List[Config]:
 
             def generate(x: torch.Tensor) -> torch.Tensor:
                 for t, t_prev in zip(times[:-1], times[1:]):
-                    x = teacher.ode_step(x, t.expand(x.shape[0]), t_prev.expand(x.shape[0]))
+                    x = teacher.ode_step(
+                        x, t.expand(x.shape[0]), t_prev.expand(x.shape[0])
+                    )
                 return x
+
             return generate
 
         for k in spec.steps:
-            configs.append(Config(spec.name, k, 2 * k, "VE", ve_std, make(k), is_teacher=True))
+            configs.append(
+                Config(spec.name, k, 2 * k, "VE", ve_std, make(k), is_teacher=True)
+            )
 
     elif spec.kind == "rf_teacher":
         velocity = load_state(VelocityNet(), spec.path, device)
 
         def make(n_steps: int) -> Callable[[torch.Tensor], torch.Tensor]:
             sampler = RectifiedFlowSampler(rf, n_steps=n_steps)
-            return lambda x: sampler.sample(tuple(x.shape), velocity, device=device, x_T=x)[1] * 2 - 1
+            return lambda x: (
+                sampler.sample(tuple(x.shape), velocity, device=device, x_T=x)[1] * 2
+                - 1
+            )
 
         for k in spec.steps:
-            configs.append(Config(spec.name, k, k, "RF", rf_std, make(k), is_teacher=True))
+            configs.append(
+                Config(spec.name, k, k, "RF", rf_std, make(k), is_teacher=True)
+            )
 
     elif spec.kind in ("cm_ve", "cm_rf"):
         is_rf = spec.kind == "cm_rf"
         process = rf if is_rf else ve
         backbone = VelocityNet() if is_rf else ScoreNet(marginal_prob_std=None)
         cm = load_state(
-            ConsistencyWrapper(backbone=backbone, sigma_data=SIGMA_DATA, eps=EPS, sigma_t=process.sigma_t),
-            spec.path, device,
+            ConsistencyWrapper(
+                backbone=backbone,
+                sigma_data=SIGMA_DATA,
+                eps=EPS,
+                sigma_t=process.sigma_t,
+            ),
+            spec.path,
+            device,
         )
         sampler = ConsistencySampler(process, eps=EPS)
 
@@ -345,10 +447,21 @@ def build_configs(spec: ModelSpec, device: torch.device) -> List[Config]:
                 taus = sampler.karras_intermediate_times(
                     n_steps, rho=VE_RHO_BY_STEPS.get(n_steps, 7.0)
                 )
-            return lambda x: sampler.sample(tuple(x.shape), cm, device=device, intermediate_times=taus, x_T=x)
+            return lambda x: sampler.sample(
+                tuple(x.shape), cm, device=device, intermediate_times=taus, x_T=x
+            )
 
         for k in spec.steps:
-            configs.append(Config(spec.name, k, k, "RF" if is_rf else "VE", rf_std if is_rf else ve_std, make(k)))
+            configs.append(
+                Config(
+                    spec.name,
+                    k,
+                    k,
+                    "RF" if is_rf else "VE",
+                    rf_std if is_rf else ve_std,
+                    make(k),
+                )
+            )
 
     else:
         raise ValueError(f"Unknown model kind '{spec.kind}' for {spec.name}")
@@ -393,8 +506,23 @@ def evaluate_samples(
 
 def save_table(rows: List[dict], results_dir: str) -> None:
     """Writes the results table as CSV and as a Markdown table."""
-    columns = ["model", "steps", "nfe", "fd_mnist", "recognizable_pct", "entropy", "entropy_pct", "ms_per_image", "speedup"]
-    with open(os.path.join(results_dir, "tabla_resultados.csv"), "w", newline="", encoding="utf-8") as f:
+    columns = [
+        "model",
+        "steps",
+        "nfe",
+        "fd_mnist",
+        "recognizable_pct",
+        "entropy",
+        "entropy_pct",
+        "ms_per_image",
+        "speedup",
+    ]
+    with open(
+        os.path.join(results_dir, "tabla_resultados.csv"),
+        "w",
+        newline="",
+        encoding="utf-8",
+    ) as f:
         writer = csv.DictWriter(f, fieldnames=columns, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(rows)
@@ -412,7 +540,9 @@ def save_table(rows: List[dict], results_dir: str) -> None:
             f"{cell(r['recognizable_pct'], '.1f')} % | {cell(r['entropy'], '.3f')} ({cell(r['entropy_pct'], '.0f')} %) | "
             f"{cell(r['ms_per_image'], '.2f')} | {'×' + format(r['speedup'], '.1f') if r.get('speedup') else '—'} |"
         )
-    with open(os.path.join(results_dir, "tabla_resultados.md"), "w", encoding="utf-8") as f:
+    with open(
+        os.path.join(results_dir, "tabla_resultados.md"), "w", encoding="utf-8"
+    ) as f:
         f.write("\n".join(lines) + "\n")
 
 
@@ -431,7 +561,9 @@ def model_colors(configs: List[Config]) -> Dict[str, tuple]:
     return {m: palette(i % 20) for i, m in enumerate(models)}
 
 
-def plot_quality_vs_nfe(configs: List[Config], baselines: Dict[str, dict], path: str) -> None:
+def plot_quality_vs_nfe(
+    configs: List[Config], baselines: Dict[str, dict], path: str
+) -> None:
     """Plots FD-MNIST and % recognizable against NFE, one line per model.
 
     The x axis is logarithmic because NFE spans 1 to ~100. Teachers are
@@ -444,8 +576,22 @@ def plot_quality_vs_nfe(configs: List[Config], baselines: Dict[str, dict], path:
         cs = [c for c in configs if c.model == model]
         nfe = [c.nfe for c in cs]
         style = "--" if cs[0].is_teacher else "-"
-        axes[0].plot(nfe, [c.metrics["fd_mnist"] for c in cs], style, color=color, marker="o", label=model)
-        axes[1].plot(nfe, [100 * c.metrics["recognizable"] for c in cs], style, color=color, marker="o", label=model)
+        axes[0].plot(
+            nfe,
+            [c.metrics["fd_mnist"] for c in cs],
+            style,
+            color=color,
+            marker="o",
+            label=model,
+        )
+        axes[1].plot(
+            nfe,
+            [100 * c.metrics["recognizable"] for c in cs],
+            style,
+            color=color,
+            marker="o",
+            label=model,
+        )
     for name, ls in (("Real MNIST", ":"), ("Pure noise", "-.")):
         b = baselines[name]
         axes[0].axhline(b["fd_mnist"], color="gray", linestyle=ls, label=name)
@@ -480,8 +626,14 @@ def plot_time_vs_n(configs: List[Config], path: str) -> None:
         step_index[c.model] = idx + 1
         ns = sorted(c.timing)
         style = "--" if c.is_teacher else "-"
-        ax.plot(ns, [c.timing[n] for n in ns], style, color=colors[c.model], marker=STEP_MARKERS[idx % len(STEP_MARKERS)],
-                label=f"{c.label} (NFE {c.nfe})")
+        ax.plot(
+            ns,
+            [c.timing[n] for n in ns],
+            style,
+            color=colors[c.model],
+            marker=STEP_MARKERS[idx % len(STEP_MARKERS)],
+            label=f"{c.label} (NFE {c.nfe})",
+        )
     ax.set_xscale("log")
     ax.set_yscale("log")
     ax.set_xlabel("Number of generated images N")
@@ -493,7 +645,9 @@ def plot_time_vs_n(configs: List[Config], path: str) -> None:
     plt.close(fig)
 
 
-def plot_distribution(labels: List[str], distributions: List[List[float]], path: str) -> None:
+def plot_distribution(
+    labels: List[str], distributions: List[List[float]], path: str
+) -> None:
     """Heatmap of the predicted-digit distribution (%) per configuration.
 
     Uses a single-hue green scale starting at 0 % (almost white) and
@@ -511,7 +665,15 @@ def plot_distribution(labels: List[str], distributions: List[List[float]], path:
     ax.set_xlabel("Digit predicted by the classifier")
     for i in range(data.shape[0]):
         for j in range(10):
-            ax.text(j, i, f"{data[i, j]:.0f}", ha="center", va="center", fontsize=7, color="white" if data[i, j] > 0.5 * vmax else "black")
+            ax.text(
+                j,
+                i,
+                f"{data[i, j]:.0f}",
+                ha="center",
+                va="center",
+                fontsize=7,
+                color="white" if data[i, j] > 0.5 * vmax else "black",
+            )
     fig.colorbar(im, ax=ax, label="% of samples (ideal ≈ 10 %)")
     fig.tight_layout()
     fig.savefig(path, dpi=150)
@@ -521,7 +683,9 @@ def plot_distribution(labels: List[str], distributions: List[List[float]], path:
 def plot_grid(columns: List[torch.Tensor], labels: List[str], path: str) -> None:
     """Image grid: one column per configuration, rows share the initial noise."""
     n_rows, n_cols = columns[0].shape[0], len(columns)
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(n_cols * 1.25, n_rows * 1.25 + 0.6), squeeze=False)
+    fig, axes = plt.subplots(
+        n_rows, n_cols, figsize=(n_cols * 1.25, n_rows * 1.25 + 0.6), squeeze=False
+    )
     for j, (images, label) in enumerate(zip(columns, labels)):
         for i in range(n_rows):
             axes[i][j].imshow((images[i, 0].cpu() + 1) / 2, cmap="gray", vmin=0, vmax=1)
@@ -549,15 +713,36 @@ def build_rows(baselines: Dict[str, dict], configs: List[Config], n_max: int) ->
 
     rows = []
     for name, b in baselines.items():
-        rows.append({"model": name, "steps": None, "nfe": None, "fd_mnist": b["fd_mnist"], "recognizable_pct": 100 * b["recognizable"],
-                     "entropy": b["entropy"], "entropy_pct": b["entropy_pct"], "ms_per_image": None, "speedup": None})
+        rows.append(
+            {
+                "model": name,
+                "steps": None,
+                "nfe": None,
+                "fd_mnist": b["fd_mnist"],
+                "recognizable_pct": 100 * b["recognizable"],
+                "entropy": b["entropy"],
+                "entropy_pct": b["entropy_pct"],
+                "ms_per_image": None,
+                "speedup": None,
+            }
+        )
     for c in configs:
         ms = 1000 * c.timing[n_max] / n_max if c.timing else None
         ref = slowest_teacher.get(c.family)
         speedup = (ref.timing[n_max] / c.timing[n_max]) if (ref and c.timing) else None
-        rows.append({"model": c.model, "steps": c.steps, "nfe": c.nfe, "fd_mnist": c.metrics["fd_mnist"],
-                     "recognizable_pct": 100 * c.metrics["recognizable"], "entropy": c.metrics["entropy"],
-                     "entropy_pct": c.metrics["entropy_pct"], "ms_per_image": ms, "speedup": speedup})
+        rows.append(
+            {
+                "model": c.model,
+                "steps": c.steps,
+                "nfe": c.nfe,
+                "fd_mnist": c.metrics["fd_mnist"],
+                "recognizable_pct": 100 * c.metrics["recognizable"],
+                "entropy": c.metrics["entropy"],
+                "entropy_pct": c.metrics["entropy_pct"],
+                "ms_per_image": ms,
+                "speedup": speedup,
+            }
+        )
     return rows, slowest_teacher
 
 
@@ -579,8 +764,15 @@ def main() -> None:
     t_start = time.time()
 
     classifier = load_state(MNISTClassifier(), CLASSIFIER_PATH, device)
-    reference = extract_features(classifier, load_real_images(train=True, n=N_REFERENCE))
-    logger.info("Reference: %d real training images | device=%s | N_EVAL=%d", N_REFERENCE, device, args.n_eval)
+    reference = extract_features(
+        classifier, load_real_images(train=True, n=N_REFERENCE)
+    )
+    logger.info(
+        "Reference: %d real training images | device=%s | N_EVAL=%d",
+        N_REFERENCE,
+        device,
+        args.n_eval,
+    )
 
     baselines = {}
     for name, samples in (
@@ -589,7 +781,13 @@ def main() -> None:
     ):
         metrics, dist = evaluate_samples(samples, classifier, reference)
         baselines[name] = {**metrics, "distribution": dist}
-        logger.info("%-28s FD=%.1f | recognizable=%.1f%% | entropy=%.3f", name, metrics["fd_mnist"], 100 * metrics["recognizable"], metrics["entropy"])
+        logger.info(
+            "%-28s FD=%.1f | recognizable=%.1f%% | entropy=%.3f",
+            name,
+            metrics["fd_mnist"],
+            100 * metrics["recognizable"],
+            metrics["entropy"],
+        )
 
     configs: List[Config] = []
     for spec in MODELS:
@@ -612,29 +810,69 @@ def main() -> None:
         grid_samples[(c.model, c.steps)] = samples[:GRID_IMAGES].cpu()
         logger.info(
             "%-36s NFE=%4d | FD=%.1f | recognizable=%.1f%% | entropy=%.3f | %.1f s",
-            c.label, c.nfe, c.metrics["fd_mnist"], 100 * c.metrics["recognizable"], c.metrics["entropy"], time.time() - t0,
+            c.label,
+            c.nfe,
+            c.metrics["fd_mnist"],
+            100 * c.metrics["recognizable"],
+            c.metrics["entropy"],
+            time.time() - t0,
         )
 
     if not args.no_timing:
         for c in configs:
-            c.timing = benchmark_generation_time(lambda n, c=c: c.generate(c.noise(n).to(device)), timing_sizes, timing_repeats)
-            logger.info("Timing %-36s %s", c.label, {n: f"{t:.3f}s" for n, t in c.timing.items()})
+            c.timing = benchmark_generation_time(
+                lambda n, c=c: c.generate(c.noise(n).to(device)),
+                timing_sizes,
+                timing_repeats,
+            )
+            logger.info(
+                "Timing %-36s %s",
+                c.label,
+                {n: f"{t:.3f}s" for n, t in c.timing.items()},
+            )
 
     rows, slowest_teacher = build_rows(baselines, configs, max(timing_sizes))
 
     save_table(rows, args.results_dir)
-    with open(os.path.join(args.results_dir, "resultados.json"), "w", encoding="utf-8") as f:
-        json.dump({
-            "config": {"n_eval": args.n_eval, "n_reference": N_REFERENCE, "timing_sizes": timing_sizes,
-                       "timing_repeats": timing_repeats, "confidence_threshold": CONFIDENCE_THRESHOLD, "seed": SEED,
-                       "device": str(device), "speedup_reference": {k: v.label for k, v in slowest_teacher.items()}},
-            "baselines": baselines,
-            "configs": [{"model": c.model, "steps": c.steps, "nfe": c.nfe, "family": c.family, **c.metrics,
-                         "distribution": c.distribution, "timings": {str(n): t for n, t in c.timing.items()}} for c in configs],
-        }, f, indent=2, ensure_ascii=False)
+    with open(
+        os.path.join(args.results_dir, "resultados.json"), "w", encoding="utf-8"
+    ) as f:
+        json.dump(
+            {
+                "config": {
+                    "n_eval": args.n_eval,
+                    "n_reference": N_REFERENCE,
+                    "timing_sizes": timing_sizes,
+                    "timing_repeats": timing_repeats,
+                    "confidence_threshold": CONFIDENCE_THRESHOLD,
+                    "seed": SEED,
+                    "device": str(device),
+                    "speedup_reference": {
+                        k: v.label for k, v in slowest_teacher.items()
+                    },
+                },
+                "baselines": baselines,
+                "configs": [
+                    {
+                        "model": c.model,
+                        "steps": c.steps,
+                        "nfe": c.nfe,
+                        "family": c.family,
+                        **c.metrics,
+                        "distribution": c.distribution,
+                        "timings": {str(n): t for n, t in c.timing.items()},
+                    }
+                    for c in configs
+                ],
+            },
+            f,
+            indent=2,
+            ensure_ascii=False,
+        )
 
     plot_quality_vs_nfe(
-        [c for c in configs if c.model not in APPENDIX_ONLY], baselines,
+        [c for c in configs if c.model not in APPENDIX_ONLY],
+        baselines,
         os.path.join(args.results_dir, "calidad_vs_nfe.png"),
     )
     if not args.no_timing:
@@ -642,14 +880,19 @@ def main() -> None:
     shown = [c for c in configs if c.model not in ABLATION_ONLY]
     plot_distribution(
         list(baselines) + [c.label for c in shown],
-        [b["distribution"] for b in baselines.values()] + [c.distribution for c in shown],
+        [b["distribution"] for b in baselines.values()]
+        + [c.distribution for c in shown],
         os.path.join(args.results_dir, "distribucion_digitos.png"),
     )
     ablation_labels = {c.label for c in configs if c.model in ABLATION_ONLY}
     for family, cols in grid_columns.items():
         cols = [(l, x) for l, x in cols if l not in ablation_labels]
         if cols:
-            plot_grid([x for _, x in cols], [l for l, _ in cols], os.path.join(args.results_dir, f"muestras_{family.lower()}.png"))
+            plot_grid(
+                [x for _, x in cols],
+                [l for l, _ in cols],
+                os.path.join(args.results_dir, f"muestras_{family.lower()}.png"),
+            )
         picked = [(m, s) for m, s in GRID_3ROWS[family] if (m, s) in grid_samples]
         if picked:
             plot_grid(
@@ -661,11 +904,16 @@ def main() -> None:
     picked = [(m, s, l) for m, s, l in NOEMA_GRID if (m, s) in grid_samples]
     if len(picked) == len(NOEMA_GRID):
         plot_grid(
-            [grid_samples[(m, s)][:5] for m, s, _ in picked], [l for _, _, l in picked],
+            [grid_samples[(m, s)][:5] for m, s, _ in picked],
+            [l for _, _, l in picked],
             os.path.join(args.results_dir, "muestras_ve_sin_ema.png"),
         )
 
-    logger.info("Done in %.1f min. Results in %s", (time.time() - t_start) / 60, args.results_dir)
+    logger.info(
+        "Done in %.1f min. Results in %s",
+        (time.time() - t_start) / 60,
+        args.results_dir,
+    )
 
 
 if __name__ == "__main__":
