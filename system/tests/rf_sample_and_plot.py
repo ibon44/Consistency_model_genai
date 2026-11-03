@@ -34,7 +34,7 @@ from utils import get_device, set_seed
 
 # ============================== CONFIG ==============================
 CHECKPOINT_PATH = (
-    "./checkpoints/mnist_all_rf_v0.pth"  # Path to a trained VelocityNet checkpoint
+    "./checkpoints/mnist_all_rf_ema.pth"  # Path to a trained VelocityNet checkpoint
 )
 N_IMAGES = 10
 STEP_COUNTS = [1, 2, 10, 50]

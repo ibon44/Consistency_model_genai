@@ -85,7 +85,7 @@ Description:
     reuse_timing.py replaces the timing columns (and tiempo_vs_n.png) with
     the reference times measured once on an idle CPU, since the times only
     depend on the network and the number of evaluations. A full run takes
-    about 40 minutes on CPU.
+    about 17 minutes on CPU (without the timing benchmark).
 
 License:
     Proprietary. All rights reserved.
@@ -143,13 +143,12 @@ class ModelSpec(NamedTuple):
 # ============================== CONFIG ==============================
 #
 # Every consistency model is listed next to the teacher it was distilled
-# from: CM-VE (CD) from the raw VE teacher (the EMA one is the better VE
-# teacher and is reported too), CM-RF (CD) from the EMA 1-RF and CM-RF
-# (reflow) from the EMA 2-RF. CT and iCT use no teacher.
+# from: CM-VE (CD) from the VE teacher (EMA weights), CM-RF (CD) from the
+# EMA 1-RF and CM-RF (reflow) from the EMA 2-RF. CT and iCT use no teacher.
 MODELS: List[ModelSpec] = [
     # "VE teacher" is the teacher of CM-VE (CD): 60 epochs, EMA weights. The
     # earlier teacher without EMA and the CD distilled from it (first CD run)
-    # are kept as an ablation (see APPENDIX_ONLY).
+    # are kept as an ablation (see ABLATION_ONLY).
     ModelSpec(
         "VE teacher", "ve_teacher", "./checkpoints/mnist_all_ve_ema.pth", [5, 10, 50]
     ),

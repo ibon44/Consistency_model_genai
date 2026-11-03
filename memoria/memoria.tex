@@ -21,9 +21,6 @@
 % system/evaluation/compare.py) y figures/ (ablaciones de RF).
 \graphicspath{{../results/}{../figures/}{./}}
 
-% Marca de texto pendiente.
-\newcommand{\pendiente}[1]{\textcolor{red}{[PENDIENTE\ifx\relax#1\relax\else: #1\fi]}}
-
 % Muestra los nombres de los autores (sin esto, la plantilla los oculta
 % como en un envío anónimo y añade números de línea).
 \nipsfinalcopy
@@ -1110,10 +1107,14 @@ editing.
 
 \section*{Declaration regarding the use of AI tools}
 During the preparation of this manuscript, the authors used Claude (Anthropic;
-Claude Opus 5.5 and Claude Sonnet 5.5) for AI-assisted coding and language
-editing. The use of the tool was limited to helping write and debug parts of the
-code (training scripts and the evaluation pipeline), checking the numbers and
-claims of the report against the code and the results, and editing the wording
-of the report and the notebook.
+Claude Opus 5.5 and Claude Sonnet 5.5) for AI-assisted coding, code quality
+improvement, analysis of results, drafting of the report and language editing
+(including help with the English). The use of the tool was limited to helping write and debug parts of the
+code (training scripts, evaluation pipeline and notebook), improving the quality
+of the code (formatting, imports, comments and documentation), checking the
+numbers and claims of the report against the code and the results, drafting and
+editing the text of the report and the notebook, and improving its English. The
+authors independently verified the output and retain full responsibility for the
+accuracy, integrity, originality, and final content of the manuscript.
 
 \end{document}

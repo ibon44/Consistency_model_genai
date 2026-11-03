@@ -54,18 +54,18 @@ command line (`--help`).
 
 | Model                                    | Script                                                                                                                      | Checkpoint                                                                     |
 | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| VE diffusion teacher                     | `ve_training.py`                                                                                                          | `mnist_all_ve_ema.pth` (EMA); `mnist_all_ve.pth` (raw, see below)              |
+| VE diffusion teacher                     | `ve_training.py`                                                                                                          | `mnist_all_ve_ema.pth` (EMA); `mnist_all_ve.pth` (no EMA, see below)           |
 | Rectified Flow teacher (1-RF)            | `rectified_flow_training.py`                                                                                              | `mnist_all_rf.pth`, `mnist_all_rf_ema.pth`                                 |
-| 2-RF (reflow)                            | `reflow_training.py`                                                                                                      | `mnist_all_2rf.pth`, `mnist_all_2rf_ema.pth`                               |
+| 2-RF (reflow)                            | `reflow_training.py`                                                                                                      | `mnist_all_2rf_ema.pth` (the raw weights are also saved but not kept)      |
 | CM-VE, consistency distillation          | `consistency_distillation_training.py --teacher ve --teacher-tag ema --tag ema`                                           | `mnist_all_cm_ve_ema.pth`                                                    |
-| CM-VE from the raw teacher (ablation)    | `consistency_distillation_training.py --teacher ve`                                                                       | `mnist_all_cm_ve.pth`                                                        |
+| CM-VE from the no-EMA teacher (ablation) | `consistency_distillation_training.py --teacher ve`                                                                       | `mnist_all_cm_ve.pth`                                                        |
 | CM-RF, consistency distillation          | `consistency_distillation_training.py --teacher rf`                                                                       | `mnist_all_cm_rf.pth`                                                        |
 | CM-RF from the 2-RF                      | `consistency_distillation_training.py --teacher rf --teacher-checkpoint ./checkpoints/mnist_all_2rf_ema.pth --tag reflow` | `mnist_all_cm_rf_reflow.pth`                                                 |
 | CM-VE, consistency training (CT v1 / v2) | `consistency_training.py` / `consistency_training_v2.py`                                                                | `mnist_all_cm_ve_ct.pth` / `mnist_all_cm_ve_ct_v2.pth`                     |
 | CM-VE, improved CT (iCT v1 / v2)         | `consistency_training_improved.py` (`--tag` names the run)                                                              | `mnist_all_cm_ve_ict_n640.pth` / `mnist_all_cm_ve_ict_40k_ema_lrconst.pth` |
 | MNIST classifier (evaluation)            | `classifier_training.py`                                                                                                  | `mnist_classifier.pth`                                                       |
 
-The raw VE teacher (`mnist_all_ve.pth`, only used in the ablation of the report) was
+The VE teacher without EMA (`mnist_all_ve.pth`, only used in the ablation of the report) was
 trained with an earlier version of `ve_training.py` (commit `227ce4c`: 40 epochs,
 constant learning rate, no EMA). The current script always uses cosine decay.
 
@@ -83,9 +83,9 @@ class diversity and sampling time) and writes the tables and figures to
 `results/`:
 
 ```bash
-python system/evaluation/compare.py --no-timing   # about 40 min on CPU
+python system/evaluation/compare.py --no-timing   # about 17 min on CPU
 python system/evaluation/reuse_timing.py          # reference timings
-python system/evaluation/seed_variance.py         # noise-seed variability, about 20 min
+python system/evaluation/seed_variance.py         # noise-seed variability, about 15 min
 python system/evaluation/cm_rf_teacher_weights.py # CM-RF from EMA or raw teacher weights
 ```
 
